@@ -1,61 +1,67 @@
 # Database Schema
 
-RepoMind uses **Supabase PostgreSQL** for structured relational data, and a persisted **ChromaDB** volume for high-dimensional vector embeddings.
+Orbiter uses **Supabase PostgreSQL** for structured relational data, and a persisted **ChromaDB** volume for high-dimensional vector embeddings.
 
 ## 1. Supabase Postgres Tables
 
 ### `repositories`
-Tracks monitored GitHub repositories for each user.
+Tracks installed GitHub repositories.
 - **id**: UUID (Primary Key)
 - **user_id**: UUID (References auth.users)
-- **github_url**: TEXT
+- **installation_id**: BIGINT (GitHub App installation)
+- **github_repo_id**: BIGINT
 - **owner**: TEXT
 - **repo_name**: TEXT
-- **is_indexed**: BOOLEAN (Tracks initial indexing state)
-- **last_checked_at**: TIMESTAMPTZ (For APScheduler tracking)
-- **health_score**: FLOAT (Precomputed caching score)
+- **is_indexed**: BOOLEAN
+- **last_indexed_at**: TIMESTAMPTZ
+- **last_checked_at**: TIMESTAMPTZ
+- **health_score**: INT (Default 50)
 - **created_at**: TIMESTAMPTZ
+
+### `ai_actions`
+All AI actions taken (full audit trail).
+- **id**: UUID (Primary Key)
+- **repo_id**: UUID (References repositories.id)
+- **event_type**: TEXT ('issue_triage', 'contributor_help', 'commit_analysis')
+- **github_event_id**: TEXT (Idempotency mapping)
+- **target_type**: TEXT ('issue', 'pr', 'commit')
+- **target_number**: INT (Issue/PR number)
+- **actions_taken**: JSONB (List of actions, e.g. `[{"type": "add_label"}]`)
+- **reasoning**: TEXT (Agent's explanation)
+- **ml_classification**: JSONB
+- **created_at**: TIMESTAMPTZ
+
+### `webhook_events`
+Webhook event log for idempotency and debugging.
+- **id**: UUID (Primary Key)
+- **delivery_id**: TEXT (UNIQUE, GitHub X-GitHub-Delivery header)
+- **event_type**: TEXT
+- **repo_full_name**: TEXT
+- **payload**: JSONB
+- **processed**: BOOLEAN
+- **error**: TEXT
+- **received_at**: TIMESTAMPTZ
 
 ### `commits`
-Stores analysis output from the ML Classifier and LangChain Agent.
-- **id**: UUID (Primary Key)
-- **repo_id**: UUID (References repositories.id)
-- **sha**: TEXT
-- **message**: TEXT
-- **author**: TEXT
-- **committed_at**: TIMESTAMPTZ
-- **commit_type**: TEXT (e.g. bug_fix, feature)
-- **confidence**: FLOAT
-- **is_breaking**: BOOLEAN
-- **agent_analysis**: TEXT (The Agent's summary)
-- **related_issues**: JSONB (Any issues linked by LLM)
-- **comment_posted**: BOOLEAN
-- **created_at**: TIMESTAMPTZ
+Processed commits.
+- *(Standard fields including sha, message, author, commit_type, is_breaking, reasoning)*
 
-### `agent_events`
-Log table for WebSocket replay/audit activity.
-- **id**: UUID (Primary Key)
-- **repo_id**: UUID (References repositories.id)
-- **event_type**: TEXT (e.g. `commit_analyzed`, `reindex_progress`)
-- **payload**: JSONB
-- **created_at**: TIMESTAMPTZ
+### `issues`
+Processed issues.
+- *(Standard fields including github_issue_id, title, classified_type, is_duplicate, duplicate_of, suggested_owner)*
 
 ### `notification_settings`
-User preferences for the email digests.
-- **user_id**: UUID (References auth.users, Primary Key)
-- **email_frequency**: TEXT (`immediate`, `daily`, `weekly`, `off`)
+User notification preferences.
+- **user_id**: UUID (Primary Key)
+- **email_frequency**: TEXT (e.g. 'daily')
 - **alert_on_breaking**: BOOLEAN
-- **updated_at**: TIMESTAMPTZ
+- **alert_on_duplicate_issue**: BOOLEAN
 
 ## 2. Vector Database (ChromaDB)
-Hosted directly on disk alongside the FastAPI server (`CHROMA_PERSIST_DIR`).
+Hosted directly on disk alongside the FastAPI server (`CHROMA_PERSIST_DIR`). Uses `BAAI/bge-base-en-v1.5` embeddings.
 
-### Code Embeddings
-- **Collection Name**: `repo_{id}_code`
-- **Metadata**: `{file_path, function_name, language, commit_sha}`
-- **Vector Dimension**: 768 (`BAAI/bge-base-en-v1.5`)
-
-### Commit Embeddings
-- **Collection Name**: `repo_{id}_commits`
-- **Metadata**: `{sha, author, date, commit_type}`
-- **Vector Dimension**: 768 (`BAAI/bge-base-en-v1.5`)
+### Collections per Repo:
+1. `repo_{id}_code`: Function-level code chunks for duplicate detection context & owner suggestion.
+2. `repo_{id}_docs`: README, contributing guides, and docs for contributor help queries.
+3. `repo_{id}_issues`: Resolved issues for duplicate context and historical answers.
+4. `repo_{id}_commits`: Commit messages and summaries.
