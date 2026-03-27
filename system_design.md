@@ -1,109 +1,130 @@
 # System Design Document
-## RepoMind — Complete System Design
+## Orbiter — Complete System Design
 **Version:** 1.0 | **Date:** March 2026
 
 ---
 
 ## 1. System Overview
 
-RepoMind is an event-driven AI system. A scheduler detects GitHub events, triggers a multi-step AI pipeline (ML classification → LangChain agent → RAG retrieval → action), and delivers results to a live dashboard and email. Designed as a clean monolith — fast to build, zero ops overhead, scales when needed.
+Orbiter is a real-time event-driven AI system. GitHub App webhooks deliver events instantly. FastAPI ACKs immediately and dispatches to background pipelines. Pipelines combine ML classification, RAG retrieval, and LangChain agent reasoning to take autonomous actions back on GitHub. APScheduler handles periodic jobs. Dashboard shows a live audit trail via WebSocket.
 
 ---
 
-## 2. Request Lifecycle — Adding a Repo
+## 2. Request Lifecycle — Issue Opened
 
 ```
-User pastes: github.com/tiangolo/fastapi
+Developer opens Issue #247: "App crashes on large file upload"
+        │
+        │ Milliseconds later
+        ▼
+GitHub signs payload with HMAC-SHA256
+Sends POST to: https://orbiter.koyeb.app/webhooks/github
+Headers:
+  X-GitHub-Event: issues
+  X-GitHub-Delivery: abc-123-delivery-id
+  X-Hub-Signature-256: sha256=<hmac>
         │
         ▼
-POST /api/v1/repos/
-  → Validate GitHub URL (exists + public)
-  → Save to Supabase repositories table (is_indexed: false)
-  → Return repo_id + trigger background indexing job
+FastAPI webhook handler:
+  1. Verify HMAC signature → reject if invalid
+  2. Check delivery_id in webhook_events table → idempotency guard
+  3. Log event to DB (processed: false)
+  4. Return 200 OK immediately ← GitHub satisfied
+  5. Dispatch background task: route_event(...)
+        │
+        ▼ (async background, user sees GitHub ACK instantly)
+Event Router:
+  event_type == "issues" + action == "opened"
+  → Quick ML classify: "bug" (confidence: 0.94)
+  → Route to: IssueTriage pipeline
         │
         ▼
-Background: index_repository(repo_id)
-  → GitHub API: fetch all file contents
-  → Filter: only code files, skip > 100KB
-  → Chunk with RecursiveCharacterTextSplitter
-  → Embed with BAAI/bge-base-en-v1.5 (local)
-  → Upsert to ChromaDB collection: repo_{id}_code
-  → Progress pushed via WebSocket to frontend
-  → On complete: update is_indexed: true, last_checked_at: now()
-        │
-        ▼
-Frontend: progress bar animates → "✓ Indexed 847 files"
-Repo now active in scheduler's poll list
+IssueTriage Pipeline:
+  Step 1: Full ML classification
+    Input: "App crashes on large file upload [issue body]"
+    Output: {type: "bug", confidence: 0.94, is_question: false}
+    Time: ~8ms
+
+  Step 2: Duplicate detection
+    Embed issue text (bge-base, local)
+    Search ChromaDB: repo_{id}_issues collection
+    Result: Issue #198 similarity 0.91 "crash large file"
+    → Likely duplicate found
+
+  Step 3: Owner suggestion
+    Search codebase embeddings: "file upload crash large"
+    Related files: upload.py, middleware/file_handler.py
+    Git blame via GitHub API (cached in Redis 1hr):
+    → @alice touched upload.py 8 times recently
+    → Suggested owner: @alice
+
+  Step 4: LangChain Agent reasoning
+    Input: classification + duplicate + owner + issue content
+    Agent thinks:
+      "Duplicate of #198 (similarity 0.91)
+       Should: add 'duplicate' label, reference original,
+       suggest checking if fixed in latest version,
+       suggest @alice as owner"
+    Output: structured action list
+
+  Step 5: Execute on GitHub (installation token from Redis cache)
+    PATCH /repos/owner/repo/issues/247/labels → ["bug", "duplicate"]
+    POST  /repos/owner/repo/issues/247/comments
+      → "Hi! This looks similar to #198 (closed in v2.3).
+         Are you on the latest version? Suggested: @alice 👋"
+
+  Step 6: Persist + broadcast
+    INSERT into issues table
+    INSERT into ai_actions table (full audit trail)
+    WebSocket broadcast → dashboard activity feed updates live
+
+Total time: 8–14 seconds from webhook receipt to GitHub comment
 ```
 
 ---
 
-## 3. Request Lifecycle — Commit Analysis
+## 3. Request Lifecycle — Contributor Question
 
 ```
-APScheduler fires (every 30 mins)
+New contributor opens Issue #301:
+"How do I set up the dev environment on Windows?"
         │
         ▼
-For each is_indexed repo:
-  GitHub API: GET /repos/{owner}/{repo}/commits?since={last_checked}
+Webhook → ML classify → type: "question" (0.89)
         │
-        ├── 0 new commits → update last_checked_at, continue
-        │
-        └── N new commits → for each:
-                │
-                ▼
-        ┌───────────────────────────────────┐
-        │       ML CLASSIFIER               │
-        │                                   │
-        │  Input: message + diff stats      │
-        │  Transform: TF-IDF + numeric      │
-        │  Predict: RandomForest.pkl        │
-        │  Output:                          │
-        │    type: "bug_fix"                │
-        │    confidence: 0.91              │
-        │    is_breaking: false             │
-        │  Time: ~5ms (local, no API)       │
-        └──────────────┬────────────────────┘
-                       │
-                       ▼
-        ┌───────────────────────────────────┐
-        │       LANGCHAIN REACT AGENT       │
-        │                                   │
-        │  Input: commit info + ML result   │
-        │                                   │
-        │  Loop (max 6 iterations):         │
-        │                                   │
-        │  ITER 1:                          │
-        │    Think: "Need the diff"         │
-        │    Act: get_commit_diff(sha)      │
-        │    Observe: [code changes]        │
-        │                                   │
-        │  ITER 2:                          │
-        │    Think: "Touch auth module,     │
-        │    search codebase for context"   │
-        │    Act: search_codebase(          │
-        │      "authentication middleware") │
-        │    Observe: [auth.py chunks]      │
-        │                                   │
-        │  ITER 3:                          │
-        │    Think: "Find related issues"   │
-        │    Act: find_related_issues(      │
-        │      ["auth", "token", "null"])   │
-        │    Observe: Issue #234 matches    │
-        │                                   │
-        │  ITER 4:                          │
-        │    Think: "Strong match. Post."   │
-        │    Act: post_github_comment(234)  │
-        │    Observe: Comment posted ✓      │
-        │                                   │
-        │  Final: Structured summary        │
-        └──────────────┬────────────────────┘
-                       │
-                       ▼
-        Save to Supabase commits table
-        Push event to WebSocket connections
-        If is_breaking → send email immediately
-        Update repo health score
+        ▼
+ContributorHelper Pipeline:
+
+  Query construction:
+    "how to set up dev environment Windows {repo_name}"
+
+  Multi-collection RAG:
+    Search repo_{id}_docs    → CONTRIBUTING.md section on setup
+    Search repo_{id}_issues  → Issue #45: "Windows setup tips"
+    Search repo_{id}_code    → requirements.txt, setup.py
+    Top-4 per collection → 12 candidates
+    Cross-encoder reranking → top-6 final
+
+  Confidence scoring:
+    6 strong chunks found → confidence: 0.82 (HIGH)
+    → Proceed with full answer
+
+  LLM synthesis (Gemini Flash):
+    System: "Helpful maintainer. Answer from context only.
+             Reference exact files. Welcoming tone."
+    Context: [6 ranked chunks]
+    Output: Specific Windows setup steps with gotchas
+
+  Gap detection:
+    Confidence 0.82 → above threshold (0.5) → no gap issue
+
+  GitHub actions:
+    POST comment: [answer + "Sources: CONTRIBUTING.md, #45"]
+    Add labels: ["question", "answered"]
+
+  Audit trail:
+    ai_actions: {event_type: "contributor_help", confidence: 0.82}
+    WebSocket: "Answered question #301"
 ```
 
 ---
@@ -111,226 +132,290 @@ For each is_indexed repo:
 ## 4. Data Flow Diagram
 
 ```
-┌──────────┐    poll     ┌──────────────┐   fetch   ┌─────────────┐
-│Scheduler │────────────▶│  GitHub API  │◀──────────│  Tools      │
-└──────────┘             └──────┬───────┘           └─────────────┘
-                                │ new commits
-                                ▼
-                         ┌──────────────┐
-                         │ML Classifier │
-                         │  (.pkl)      │
-                         └──────┬───────┘
-                                │ type + confidence
-                                ▼
-                         ┌──────────────┐   query   ┌─────────────┐
-                         │  LangChain   │──────────▶│  ChromaDB   │
-                         │  Agent       │◀──────────│  Vector DB  │
-                         └──────┬───────┘   chunks  └─────────────┘
-                                │                         ▲
-                                │ context                 │ index
-                                ▼                         │
-                         ┌──────────────┐          ┌──────────────┐
-                         │  Gemini/Groq │          │   Indexer    │
-                         │  LLM API     │          │  (on add)    │
-                         └──────┬───────┘          └──────────────┘
-                                │ summary
-                                ▼
-                ┌───────────────┴────────────────┐
-                │                                │
-         ┌──────▼──────┐                  ┌──────▼──────┐
-         │  Supabase   │                  │  WebSocket  │
-         │  Postgres   │                  │  → Frontend │
-         └──────┬──────┘                  └─────────────┘
-                │ if breaking
-                ▼
-         ┌──────────────┐
-         │    Resend    │
-         │  Email Alert │
-         └──────────────┘
+[GitHub]──webhook──▶[FastAPI]──verify──▶[Event Router]
+                        │                      │
+                     ACK 200           ┌───────┴────────┐
+                                       │                │
+                               [Issue Pipeline]  [Commit Pipeline]
+                                       │                │
+                    ┌──────────────────┤                ├─────────────┐
+                    │                  │                │             │
+              [ML Classifier]  [ChromaDB]        [ML Classifier] [ChromaDB]
+              .pkl local        Vector Search    .pkl local       Codebase
+                    │                  │                │
+                    └──────────────────▼────────────────┘
+                                       │
+                               [LangChain Agent]
+                                       │
+                               [Gemini/Groq LLM]
+                                       │
+                    ┌──────────────────▼────────────────┐
+                    │                                   │
+              [GitHub API]                        [Supabase DB]
+              Labels, Comments                    ai_actions, issues
+                    │                                   │
+                    └──────────────┬────────────────────┘
+                                   │
+                            [WebSocket]
+                            Dashboard live
 ```
 
 ---
 
-## 5. ChromaDB Collection Design
+## 5. Idempotency Design
+
+Critical: GitHub retries webhooks if they don't get a 200 response. Must not process the same event twice.
 
 ```
-Collection 1: repo_{id}_code
-  Purpose: Semantic codebase understanding
-  Chunks: Function-level code snippets
-  Metadata: {file_path, function_name, language, commit_sha}
-  Size: ~5k–50k chunks per repo
-  Updated: On every new commit (changed files only)
+Every webhook has a unique X-GitHub-Delivery header.
 
-Collection 2: repo_{id}_commits  
-  Purpose: "When was X feature added?" queries
-  Chunks: Commit message + file list summary
-  Metadata: {sha, author, date, commit_type}
-  Size: Full commit history
-  Updated: Append-only per new commit
+On receipt:
+  SELECT id FROM webhook_events WHERE delivery_id = $1
+  → Found? Return "already_processed" immediately
+  → Not found? Insert + process
 
-Query Strategy:
-  search_type: "mmr"        (Max Marginal Relevance)
-  k: 4                      (return 4 chunks)
-  fetch_k: 20               (from top 20 candidates)
-  Ensures: Diverse results, not 4 chunks from same function
+This prevents:
+  - Double labels on an issue
+  - Duplicate comments posted
+  - Double entries in ai_actions table
+  - Wasted LLM API calls
+
+delivery_id is indexed in Supabase for fast lookup.
 ```
 
 ---
 
-## 6. WebSocket Design
+## 6. GitHub App Token Management
 
 ```
-Connection:
-  Client → ws://api/ws/feed?token={jwt}
-  Server validates JWT → subscribes to user's repos
+Problem: Installation tokens expire after 60 minutes.
+         Creating a new one requires signing a JWT with private key.
+         Doing this on every API call is slow and wasteful.
 
-Event Types pushed to client:
-  {type: "indexing_progress", files_done: 42, current_file: "auth.py"}
-  {type: "commit_analyzed", sha: "abc", commit_type: "bug_fix", confidence: 0.91}
-  {type: "breaking_detected", sha: "xyz", summary: "..."}
-  {type: "issue_linked", commit_sha: "abc", issue_number: 234}
-  {type: "comment_posted", issue_number: 234, comment_url: "..."}
+Solution: Cache in Upstash Redis.
 
-Frontend handles:
-  → Activity feed appends new event (Framer Motion AnimatePresence)
-  → Commit type badge appears on timeline
-  → Breaking change banner animates in (red alert)
-  → Health score recalculates + GSAP re-animates
-```
+Flow:
+  get_github_client(installation_id):
+    1. Check Redis: "github_token:{installation_id}"
+    2. Hit → return Github(cached_token)
+    3. Miss:
+         a. Sign JWT with App private key (valid 10 min)
+         b. POST /app/installations/{id}/access_tokens
+         c. Get token (valid 60 min)
+         d. Cache in Redis: TTL = 3300s (55 min, safe margin)
+         e. Return Github(new_token)
 
----
-
-## 7. ML Model — Design Decisions
-
-### Why Random Forest, not deep learning?
-
-| Factor | Random Forest | Fine-tuned BERT |
-|---|---|---|
-| Training time | 2–5 minutes | Hours (GPU needed) |
-| Inference | ~5ms local | 200ms+ or API cost |
-| Interpretability | Feature importance | Black box |
-| Accuracy on commits | ~88% | ~93% |
-| Deployment | `.pkl` file, zero deps | Model server needed |
-| Interview story | Explain every decision | "I used a transformer" |
-
-Random Forest wins for MVP. Add DistilBERT in Phase 2 when you need the extra 5%.
-
-### Class Imbalance Handling
-```
-Raw dataset distribution (approximate):
-  feat/feature:       35%  ← dominant
-  fix/bug_fix:        28%
-  docs:               15%
-  refactor:           12%
-  test:                6%  ← minority
-  breaking_change:     4%  ← rare but critical
-
-Fix: SMOTE oversampling on minority classes before training
-Result: Balanced training set, better F1 on rare classes
-This is exactly the kind of ML decision you discuss in interviews.
-```
-
-### Feature Engineering
-```python
-Features used:
-  1. TF-IDF(message, ngram=(1,2), max_features=5000)
-     "fix null pointer" → sparse vector
-     Bigrams catch: "breaking change", "add feature"
-
-  2. additions (int) — large additions = likely feature
-  3. deletions (int) — large deletions = likely refactor
-  4. files_changed (int) — many files = risky change
-  5. has_breaking_keyword (bool) — explicit signal
-
-Not used (intentionally):
-  - Author name (bias risk)
-  - Time of day (noise)
-  - Repo-specific terms (generalization)
+Result:
+  First call per repo: ~300ms (token generation)
+  Subsequent calls: ~5ms (Redis hit)
+  Auto-refresh: happens naturally when TTL expires
 ```
 
 ---
 
-## 8. Caching Strategy
+## 7. ChromaDB Multi-Collection Design
 
 ```
-Upstash Redis (free 10k commands/day):
+Per repo, 4 collections:
 
-Key: "classify:{md5(message + str(additions))}"
-TTL: 7 days
-Why: Same commit message patterns repeat constantly
-     "fix: typo" appears thousands of times
-     Cache hit = 5ms instead of model inference
+repo_{id}_code
+  What: Function-level code chunks
+  When indexed: On first add + incremental on push
+  Chunk size: 800 tokens, 150 overlap
+  Used by: Duplicate detection context, owner suggestion,
+           contributor help (code examples)
 
-Key: "gh_issues:{owner}_{repo}_{page}"  
-TTL: 15 minutes
-Why: Issues list changes slowly, heavy to fetch repeatedly
-     Saves GitHub API rate limit (5k/hour authenticated)
+repo_{id}_docs
+  What: README, CONTRIBUTING.md, docs/, wiki pages
+  When indexed: On first add + on push touching doc files
+  Chunk size: 600 tokens, 100 overlap
+  Used by: Contributor helper (primary source)
 
-Key: "embed:{md5(text)}"
-TTL: 30 days
-Why: Same code chunks re-embedded = pure waste
-     Embedding is the slowest local operation
+repo_{id}_issues
+  What: Closed/resolved issues (title + body + resolution)
+  When indexed: Batch on first add + on issue.closed event
+  Chunk size: Full issue (usually < 500 tokens)
+  Used by: Duplicate detection, contributor helper (past answers)
 
-Key: "rate:{user_id}:{date}"
-TTL: 24 hours
-Why: Enforce free tier limits (5 repos max)
-     Upstash atomic increment = race-condition safe
-```
+repo_{id}_commits
+  What: Commit message + affected files summary
+  When indexed: Append-only on each push
+  Chunk size: Per commit
+  Used by: "When was X added?" queries, release assistant
 
----
-
-## 9. GitHub API Rate Limit Management
-
-```
-Unauthenticated: 60 req/hour (don't use this)
-Authenticated PAT: 5,000 req/hour
-
-Our usage per poll cycle (30 mins, 10 repos):
-  List commits since last check:  10 req (1 per repo)
-  Fetch commit diffs:             ~30 req (3 commits avg)
-  Search issues (agent tool):     ~20 req
-  Post comments (rarely):         ~5 req
-  Total per cycle:                ~65 req
-
-At 30 min intervals: 130 req/hour
-Well within 5,000/hour limit even with 20+ repos.
-
-Safety: Cache issue lists (15 min TTL)
-        Skip diff fetch if commit message is trivially "docs: typo"
-        Exponential backoff on 429 responses
+Multi-collection search strategy:
+  Query all relevant collections
+  Get k=4 per collection
+  Merge: 16 candidates total
+  Cross-encoder reranking (ms5-base-multilingual)
+  Return top-6 most relevant across all collections
+  → Better than single-collection search
+  → Ensures answers draw from docs + issues + code together
 ```
 
 ---
 
-## 10. Repo Health Score Algorithm
+## 8. Webhook Security Model
+
+```
+THREAT: Attacker sends fake GitHub events to /webhooks/github
+IMPACT: Orbiter posts unwanted comments, adds wrong labels
+
+DEFENSE: HMAC-SHA256 signature verification
+
+Every real GitHub webhook includes:
+  X-Hub-Signature-256: sha256=<hash>
+  where hash = HMAC(payload_bytes, webhook_secret)
+
+Orbiter verifies:
+  1. Header present?
+  2. Starts with "sha256="?
+  3. HMAC(payload, our_secret) == received hash?
+     Using hmac.compare_digest() — timing-attack safe
+  4. All three pass? Process.
+     Any fail? Return 401 immediately.
+
+webhook_secret stored only in:
+  → Koyeb environment variables (backend)
+  → GitHub App settings
+  Never in code. Never in git.
+
+Additional: rate limit webhook endpoint
+  Upstash Redis: max 100 requests/min per IP
+  Prevents DoS even from valid-looking requests
+```
+
+---
+
+## 9. Always-On Tracking
+
+```
+APScheduler runs inside FastAPI process on Koyeb.
+Koyeb never sleeps (unlike Render free tier).
+Browser state is irrelevant.
+
+Scheduled jobs:
+
+Every 30 mins: commit_polling_fallback
+  → Catches any commits missed by webhook
+  → Last defense against missed events
+
+Every day at 2am UTC: stale_issue_checker (Phase 2)
+  → Find issues with no activity > 60 days
+  → Post "is this still relevant?" comment
+  → Add "stale" label
+
+Every day at 9am UTC: email_digest_sender
+  → Summarize Orbiter's actions from past 24h
+  → Send to repo owner via Resend
+
+User closes browser at 11pm:
+  → Nothing changes
+  → At 11:30pm: scheduler polls commits
+  → At 2am: stale checker runs
+  → At 9am: digest email sent
+  → User opens browser → all activity logged, waiting
+```
+
+---
+
+## 10. Auth Protection — Middleware
+
+```
+WRONG pattern (previous project):
+  Browser requests /dashboard
+  → Next.js sends HTML + JS
+  → Browser renders page (protected content visible)
+  → useEffect fires, checks auth
+  → Redirect if no session
+  Problem: protected content briefly visible, API calls may fire
+
+CORRECT pattern (Orbiter):
+  Browser requests /dashboard
+  → Vercel Edge intercepts (before server, before HTML)
+  → middleware.ts runs
+  → No Supabase session? → 302 to /login
+  → Has session? → allow through
+  Result: user never receives protected HTML without auth
+
+Protected routes: /dashboard, /repo/*, /settings
+Public routes: /, /login
+
+The middleware file (frontend/middleware.ts) is the
+single source of truth for auth. Nothing else needed.
+```
+
+---
+
+## 11. Error Handling Strategy
+
+```
+Webhook verification fails:
+  → 401 immediately, log to Supabase, alert
+
+Pipeline exception:
+  → Catch all exceptions in pipeline
+  → Update webhook_events.error column
+  → WebSocket: push error event to dashboard
+  → Never crash the main process
+  → Retry: APScheduler polls catch missed events
+
+GitHub API rate limit (429):
+  → Exponential backoff: 2s, 4s, 8s, 16s
+  → After 4 retries: log as failed, continue
+  → Rate limit rarely hit: 5k/hr per installation
+
+LLM API down (Gemini):
+  → Automatic fallback to Groq
+  → If both down: save ML result only
+  → action saved with reasoning: "LLM unavailable"
+
+ChromaDB empty (new repo, not indexed yet):
+  → Skip RAG steps
+  → Proceed with ML + fallback logic only
+  → Trigger indexing in background
+
+Duplicate webhook delivery:
+  → delivery_id check catches this immediately
+  → Return 200 "already_processed"
+  → No duplicate actions
+```
+
+---
+
+## 12. Repo Health Score
 
 ```python
 def calculate_health_score(repo_id: str, days: int = 30) -> int:
     """
-    Score 0-100 based on recent commit patterns.
-    Higher = healthier, more active, fewer breaking changes.
+    Score 0-100 based on recent activity patterns.
+    Combines commit quality + issue responsiveness + code stability.
     """
     commits = get_recent_commits(repo_id, days)
-    if not commits:
-        return 50  # No data = neutral
+    issues = get_recent_issues(repo_id, days)
 
-    total = len(commits)
+    # Component 1: Commit quality (0-1)
     breaking = sum(1 for c in commits if c["is_breaking"])
-    bugs = sum(1 for c in commits if c["commit_type"] == "bug_fix")
-    features = sum(1 for c in commits if c["commit_type"] == "feature")
-    docs = sum(1 for c in commits if c["commit_type"] == "docs")
+    breaking_ratio = breaking / max(len(commits), 1)
+    commit_quality = 1.0 - min(breaking_ratio * 2, 0.5)
 
-    # Component scores (each 0-1)
-    activity_score = min(total / 20, 1.0)            # 20+ commits = full score
-    breaking_penalty = 1.0 - min(breaking / total, 0.3)  # Cap penalty at 30%
-    quality_score = 1.0 - min((bugs / total) * 0.5, 0.4) # Many bugs = lower
-    maintenance_score = min((docs / total) * 3, 1.0)     # Docs = good sign
+    # Component 2: Activity level (0-1)
+    activity = min(len(commits) / 20, 1.0)  # 20+ commits = max score
+
+    # Component 3: Issue response rate (0-1)
+    triaged = sum(1 for i in issues if i["orbiter_responded"])
+    response_rate = triaged / max(len(issues), 1)
+
+    # Component 4: Bug ratio (0-1, lower bugs = higher score)
+    bugs = sum(1 for c in commits if c["commit_type"] == "bug_fix")
+    bug_ratio = bugs / max(len(commits), 1)
+    bug_score = 1.0 - min(bug_ratio * 1.5, 0.4)
 
     score = (
-        activity_score    * 0.30 +
-        breaking_penalty  * 0.35 +  # Breaking changes weighted highest
-        quality_score     * 0.25 +
-        maintenance_score * 0.10
+        commit_quality * 0.35 +
+        activity       * 0.25 +
+        response_rate  * 0.25 +
+        bug_score      * 0.15
     ) * 100
 
     return round(score)
@@ -338,192 +423,57 @@ def calculate_health_score(repo_id: str, days: int = 30) -> int:
 
 ---
 
-## 11. Email Digest Design
+## 13. Free Tier Usage Analysis
 
 ```
-Trigger conditions:
-  IMMEDIATE: is_breaking = true (never delay this)
-  DAILY:     digest at 9am user's timezone (if has activity)
-  WEEKLY:    Sunday summary (if daily off)
+Gemini Flash (free: 1M tokens/day, 15 RPM):
+  Per issue triage: ~800 tokens
+  Per contributor answer: ~1,200 tokens
+  Per commit analysis: ~500 tokens
+  Daily budget at 1M tokens:
+    ~500 issue triages OR ~833 commit analyses
+  Well within limits for a portfolio project
 
-Daily digest structure:
-  Subject: "RepoMind: fastapi/fastapi — 12 commits, 1 breaking ⚠"
+Groq/Llama (free: 14,400 req/day):
+  Fallback only — Gemini primary
+  Emergency reserve
 
-  Body:
-  📦 Repository Activity — March 6, 2026
+Upstash Redis (free: 10,000 commands/day):
+  GitHub token cache: ~50 reads/day
+  Classification cache: ~200 reads/day
+  Issue list cache: ~100 reads/day
+  Rate limit counters: ~500 reads/day
+  Total: ~850/day — well within 10k limit
 
-  Breakdown:
-    🔴 1 breaking change
-    🐛 4 bug fixes
-    ✨ 5 features
-    📝 2 documentation
+GitHub API (free: 5,000 req/hr per installation):
+  Per issue: ~5 calls (get issue, add labels, post comment)
+  Per commit: ~3 calls (get diff, get blame)
+  At 100 events/day: ~500 calls/day → no problem
 
-  ⚠ Breaking Change Alert:
-    Commit abc1234: "BREAKING: remove deprecated v1 endpoints"
-    Affected files: routers/v1/*, tests/v1/*
-    Related issue: #892 (open)
-    [View Analysis →]
-
-  🔗 New Issue Connections:
-    Commit def5678 → likely fixes Issue #234 (auth null pointer)
-    [View on GitHub →]
-
-  Repo Health: 72/100 (↓8 from last week)
-
-  [Open Dashboard →]
+Supabase (free: 500MB, 50k MAU):
+  ~1KB per ai_action row
+  ~2KB per issue row
+  At 1000 events: ~3MB → well within 500MB
 ```
 
 ---
 
-## 12. Scalability Path
+## 14. What Makes This Different — Technical Summary
 
 ```
-Now (0 → 500 users)
-  Single Koyeb instance
-  ChromaDB on persistent disk
-  APScheduler in-process
-  Supabase free tier
-  Cost: $0/month
-
-Growth (500 → 5k users)
-  Koyeb paid ($5/mo)
-  Supabase Pro ($25/mo)
-  Migrate ChromaDB → Pinecone starter ($70/mo)
-  Cost: ~$100/month
-  Break-even: not relevant (portfolio project)
-
-Scale (5k+ users — future)
-  Split scheduler → dedicated worker dyno
-  Redis queue (Bull/Celery) for agent jobs
-  Pinecone scaled index
-  Read replica for Supabase
-  Cost: ~$300/month
+Basic RAG app:                     Orbiter:
+─────────────────────────          ────────────────────────────────
+User asks → AI answers             GitHub event → AI acts (no user)
+Single collection search           Multi-collection cross-encoder RAG
+General LLM responses              Structured output → real GitHub actions
+No external integrations           GitHub App webhooks + API write access
+No ML model                        Trained classifier (.pkl) runs locally
+Static                             Real-time WebSocket dashboard
+Polling (slow, wasteful)           Webhooks (instant, efficient)
+No audit trail                     Full action log with reasoning
+No security                        HMAC verification + idempotency
 ```
 
 ---
 
-## 13. Error Handling Strategy
-
-```
-GitHub API down:
-  → Catch exception, log, skip this poll cycle
-  → Retry next scheduled run (30 mins)
-  → No crash, no user impact
-
-LLM API failure (Gemini):
-  → Automatic fallback to Groq
-  → If both fail: save classification-only result
-  → Agent summary = "LLM unavailable, classification only"
-  → Always save ML result even if agent fails
-
-ChromaDB corruption:
-  → Re-index from GitHub (automated recovery endpoint)
-  → POST /api/v1/repos/{id}/reindex
-
-Agent infinite loop:
-  → max_iterations=6 hard cap
-  → Timeout: 30 seconds per agent run
-  → If exceeded: save partial result
-
-WebSocket disconnect:
-  → Client auto-reconnects with exponential backoff
-  → Missed events fetched via REST /api/v1/repos/{id}/activity
-```
-
-## 13. Auth Protection — Why Middleware Is The Right Approach
-
-```
-WRONG (what your previous project did):
-  User visits /dashboard
-        ↓
-  Next.js sends full HTML + JS to browser
-        ↓
-  Browser renders dashboard (VISIBLE)
-        ↓
-  useEffect fires → checks auth → redirect
-  Gap: page visible for 100-500ms, API calls may fire
-
-CORRECT (middleware.ts):
-  User visits /dashboard
-        ↓
-  Next.js Edge Runtime intercepts request (before any HTML sent)
-        ↓
-  middleware.ts checks Supabase session token
-        ↓
-  No session? → 302 redirect to /login
-  Has session? → page renders normally
-  Gap: zero — user never receives protected page HTML
-```
-
-Middleware runs at the CDN/Edge level on Vercel — faster than any server response and completely client-bypass-proof.
-
----
-
-## 14. Always-On Tracking — How It Works When App Is Closed
-
-```
-User closes browser at 11pm
-        │
-        │  Nothing changes on backend
-        ▼
-Koyeb server (always running):
-  APScheduler fires at 11:30pm
-    → Polls GitHub for all monitored repos
-    → Finds 3 new commits
-    → Runs ML classifier on each
-    → Triggers LangChain agent
-    → Saves results to Supabase
-    → Sends breaking change email if needed
-
-APScheduler fires at 12:00am... 12:30am... 1:00am...
-  (continues every 30 mins regardless)
-
-User opens browser at 9am next day:
-  Dashboard loads → fetches from Supabase
-  → Shows all 8 commits analyzed overnight
-  → Activity feed populated with agent actions
-  → All happened while app was "closed"
-```
-
-The key insight: **the browser is a viewport, not the engine.** The engine (scheduler + agent) lives on Koyeb and never stops.
-
----
-
-## 15. Manual Re-index — When and Why
-
-```
-Automatic indexing: happens once when repo is first added
-Incremental updates: only changed files re-embedded on new commits
-
-But sometimes you need a full re-index:
-  ├── Major refactor: entire folder structure changed
-  ├── Branch merge: thousands of new files added
-  ├── Rename: files moved, old embeddings point to dead paths
-  └── First index was interrupted: partial index = bad search results
-
-Re-index flow:
-  User clicks "Re-index" button
-        ↓
-  POST /api/v1/repos/{id}/reindex
-        ↓
-  Backend: mark is_indexed=false, invalidate Redis cache
-        ↓
-  Background task: clear ChromaDB collection for this repo
-        ↓
-  Re-fetch all files from GitHub API
-        ↓
-  Re-chunk, re-embed, re-store
-        ↓
-  Progress pushed via WebSocket → frontend shows live progress
-        ↓
-  Complete: is_indexed=true, last_indexed_at=now()
-        ↓
-  WebSocket: "✓ Re-indexed 847 files"
-
-All this happens in background — user sees progress bar,
-can still use the rest of the dashboard during re-index.
-```
-
----
-
-*System Design v2.0 — RepoMind*
+*System Design v1.0 — Orbiter*
