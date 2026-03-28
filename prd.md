@@ -1,117 +1,127 @@
 # Product Requirements Document
-## RepoMind — AI GitHub Repository Intelligence Agent
+## Orbiter — AI Maintainer for Open-Source Repos
 **Version:** 1.0 | **Date:** March 2026 | **Status:** Active
 
 ---
 
 ## 1. Executive Summary
 
-RepoMind is an autonomous AI agent that monitors GitHub repositories, understands code changes semantically, classifies commits using a trained ML model, detects breaking changes, connects commits to issues, and takes intelligent actions — without human intervention. Not a notification tool. An intelligence layer on top of GitHub.
+Orbiter is an autonomous AI system that acts as a junior maintainer for any GitHub repository. It installs as a GitHub App, receives real-time webhook events, and takes intelligent actions — triaging issues, reviewing PRs with inline comments, answering contributor questions, and drafting release changelogs — all without human intervention.
 
-**The one-line pitch:** "It doesn't tell you what happened — it tells you what it means and what to do."
+It merges two layers: an **intelligence dashboard** (commit classification, health scores, codebase embeddings from v1) with a new **autonomous action layer** that writes back to GitHub in real time.
+
+**One line:** An AI that does the work of a junior open-source maintainer, 24/7, for free.
 
 ---
 
 ## 2. Problem
 
-Developers lose hours on repository noise:
+Open-source maintainers are overwhelmed:
 
-| Pain | Reality |
+| Pain | Scale |
 |---|---|
-| 50+ commits to review | Takes hours to understand what actually changed |
-| Breaking changes | Slip through until production breaks |
-| Open issues | Pile up with no connection to commits that fix them |
-| PR reviews | Lack context on blast radius of a change |
-| Open source maintainers | Can't keep up with contributor activity |
+| Unlabeled issues pile up | Average OSS repo: 40+ unreviewed issues |
+| PRs sit unreviewed | Contributors wait weeks, then abandon |
+| "How do I run this?" asked repeatedly | Same question in 20 different issues |
+| Changelogs never written | Releases undocumented, users confused |
+| New contributors lost | No guidance, wrong files touched, PRs never merge |
 
-Existing tools (GitHub notifications, Dependabot) only say *what* happened — not *what it means* or *what to do*.
+Existing tools handle narrow automation. Nothing combines contextual AI understanding of the codebase with autonomous multi-step action across issues, PRs, docs, and releases.
+
+**GSoC/LFX signal:** This is the exact pain every open-source org feels daily. Building the solution signals you understand their world — not just models.
 
 ---
 
-## 3. What RepoMind Does
+## 3. System Overview
 
 ```
-User adds repo URL
-        ↓
-RepoMind indexes entire codebase as embeddings
-        ↓
-Monitors every 30 mins — commits, issues, PRs
-        ↓
-ML model classifies each commit (bug/feature/breaking/docs/refactor)
-        ↓
-LangChain agent understands impact using RAG over codebase
-        ↓
-Agent connects commits → related open issues automatically
-        ↓
-Posts intelligent GitHub comments + sends email digest
-        ↓
-Dashboard shows repo health, risk score, change velocity
+GitHub Repo installs Orbiter GitHub App
+            ↓
+GitHub sends webhook events instantly:
+  issues.opened / PR.opened / push / release.created
+            ↓
+Orbiter FastAPI receives → routes to pipeline
+            ↓
+┌──────────────────────────────────────────────────────┐
+│                 AI MAINTAINER LAYER                   │
+│                                                       │
+│  Issue Triage      classify → label → assign → reply │
+│  PR Reviewer       diff → analyze → inline comments  │
+│  Release Assistant merged PRs → draft changelog      │
+│  Contributor Help  question → RAG search → answer    │
+└──────────────────────────────────────────────────────┘
+            ↓
+Actions posted back to GitHub (comments, labels, reviews)
+            ↓
+Dashboard: live audit trail of every AI action + why
 ```
 
 ---
 
 ## 4. Target Users
 
-**Primary — Individual Developer:** Tracks dependencies or OSS projects. Wants zero-effort repo intelligence without reading every commit.
+**Primary — Open-Source Maintainer**
+Runs a popular repo, drowning in issues and PRs. Wants a first-pass AI that handles triage and initial responses so they can focus on real technical decisions.
 
-**Secondary — Small Team (2–10 devs):** Async awareness of what teammates are doing without context switching.
+**Primary — You (Portfolio)**
+GSoC applicant / AI internship seeker. This project demonstrates end-to-end system design, real ML, autonomous agents, and genuine open-source value — the exact combination that impresses mentors and hiring managers.
+
+**Secondary — Small Dev Team**
+Internal repos that need automated code review and issue management without paying for GitHub Copilot Enterprise.
 
 ---
 
 ## 5. Features
 
-### Phase 1 — MVP (Weeks 1–4)
+### Phase 1 — MVP (Weeks 1–5)
 
-**Repo Indexing Engine**
-Clone any public GitHub repo, parse all code files into chunks, embed using sentence-transformers (local, free), store in ChromaDB with file + function-level metadata. Incremental re-indexing on new commits — only changed files.
+**Issue Triage Agent**
+On `issues.opened` webhook: ML classifier determines type (bug / feature / question / duplicate). Agent searches ChromaDB for similar past issues. If duplicate found (similarity > 0.88): references original, suggests closing. Posts contextual first-response comment. Applies GitHub labels automatically. Suggests owner based on who touched related files most recently (git blame analysis).
 
-**Commit Classifier (Real ML Model)**
-Trained scikit-learn classifier on GitHub commit data. Input: commit message + diff. Output: `{bug_fix, feature, breaking_change, docs, refactor, test}` with confidence scores. Saved as `.pkl`, served via FastAPI. Target accuracy: 88%+. This is a real trained model — not an API call.
+**Contributor Helper**
+On `issues.opened` where type = "question": RAG search over CONTRIBUTING.md, README, docs/, and past resolved issues. LLM synthesizes answer from retrieved context. Posts direct answer as GitHub comment. If question reveals a documentation gap, opens a new issue flagging it. Never leaves a question unanswered.
 
-**Autonomous LangChain Agent**
-ReAct pattern agent with 5 custom tools:
-- `get_commit_diff` — fetches actual code diff via GitHub API
-- `search_codebase` — semantic search over repo embeddings
-- `find_related_issues` — matches commit semantics to open issues
-- `analyze_impact` — understands which modules are affected
-- `post_github_comment` — takes real action on GitHub
-
-**Monitoring Engine**
-APScheduler background job polling every 30 mins. Detects new commits, issues, PRs. Triggers agent pipeline per event. Stores full history in Supabase. **Runs 24/7 on Koyeb — closing the browser never pauses monitoring.** All commits from overnight are analyzed and waiting when user opens the app next morning.
-
-**Manual Re-index**
-Button on each repo page. Triggers full re-embedding of codebase from scratch — useful after major refactors, large merges, or if embeddings feel stale. Progress streamed live via WebSocket. Runs in background, never blocks the UI.
-
-**Email Digest**
-Daily summary per repo — commit breakdown by type, breaking changes flagged, issue↔commit connections, recommended actions. Sent via Resend. User controls frequency.
+**Commit Intelligence (from v1)**
+ML classifier on every new commit: bug_fix / feature / breaking_change / docs / refactor / test. Confidence scores. Codebase embeddings in ChromaDB. Health score dashboard. Activity feed via WebSocket.
 
 **Dashboard**
-Add/remove repos, live activity feed via WebSocket, commit timeline with ML classification badges, repo health score, breaking change alerts. Full dark theme with terminal aesthetic.
+Live audit trail: every action Orbiter took, on which issue/PR, with what reasoning. Repo health score. Commit timeline with ML badges. Activity feed. Add/remove repos. Full dark terminal aesthetic.
 
-**Route Auth Protection**
-`middleware.ts` on Vercel Edge intercepts every request before page renders. No session = instant redirect to `/login`. No flash of protected content, no client-side bypass. Every protected route is server-enforced.
+**GitHub App Webhooks**
+Real-time event delivery. No polling. GitHub pushes events to Orbiter the moment they happen. Handles: issues, pull_request, push, release, issue_comment events. HMAC signature verification on every webhook.
 
-### Phase 2 (Weeks 5–8)
+### Phase 2 (Weeks 6–9)
 
-- Codebase Q&A via RAG ("What does the auth module do?")
-- **Commit Risk Score** — 0-100 score per commit based on files touched, deletion ratio, test coverage change
-- **Bus Factor Analyzer** — files only one person touches flagged as single-point-of-failure risk
-- **Velocity Anomaly Detection** — z-score alert when commit frequency spikes abnormally
-- PR intelligence — auto-summarize, flag high-risk file touches
-- Private repo support via GitHub OAuth token
-- Fine-tuned DistilBERT commit classifier (higher accuracy)
+**PR Reviewer**
+On `pull_request.opened`: fetch diff, run ruff (linter) + bandit (security) on changed files. RAG search for related code context. LLM generates inline review comments mapped to exact diff line numbers. Posts GitHub Review with APPROVE / REQUEST_CHANGES / COMMENT status. Flags breaking changes automatically.
+
+**Release Assistant**
+On `release.created` or manual trigger: fetch all PRs merged since last tag. ML-classify each by type. LLM drafts structured changelog grouped by category (breaking / features / fixes / docs). Posts as GitHub Release draft. Maintainer reviews and publishes.
+
+**Duplicate PR Detection**
+On `pull_request.opened`: embed PR description + diff summary, search against existing open PRs. Flag near-duplicates before maintainer wastes review time.
+
+**Auto-close Stale Issues**
+Issues with no activity in 60 days: Orbiter posts a "is this still relevant?" comment, adds `stale` label. If no response in 7 days: closes with explanation.
 
 ---
 
-## 6. ML Model Specification
+## 6. ML Model
 
-**Training Data:** GitHub Archive public dataset — 50,000+ labeled commits using conventional commit tags as ground truth (`feat:`, `fix:`, `BREAKING CHANGE:` etc.)
+**Commit + Issue Classifier (unified model)**
+Same architecture serves both commits and issues — they're both short text classification problems.
 
-**Features:** TF-IDF on commit message, diff size (lines added/removed), number of files changed, file type distribution (.py/.js/.md etc.)
+Training data:
+- Commits: 50,000 from GitHub Archive with conventional commit labels
+- Issues: 30,000 from public repos with existing labels as ground truth
 
-**Model:** TF-IDF vectorizer + Random Forest. Fast, interpretable, no GPU needed, runs locally. F1-score reported per class.
+Features: TF-IDF (ngram 1–2) on text, text length, has_code_block (bool), has_error_traceback (bool), num_links (int)
 
-**Why this matters for interviews:** You explain feature engineering, class imbalance handling (SMOTE), evaluation metrics, and serving a `.pkl` model via API. That's exactly what ML Engineer roles test.
+Model: TF-IDF + Random Forest. Saved as `.pkl`. Inference < 10ms locally.
+
+Target accuracy: 88%+ commits, 85%+ issues.
+
+**Why unified:** One model, two use cases. More training data. Cleaner architecture. Better interview story — "I built a classifier that generalizes across commit messages and issue text."
 
 ---
 
@@ -119,29 +129,47 @@ Add/remove repos, live activity feed via WebSocket, commit timeline with ML clas
 
 | Requirement | Target |
 |---|---|
-| Repo indexing (avg size) | < 3 minutes |
-| Commit analysis latency | < 15 seconds |
-| ML classifier inference | < 100ms |
-| API response time | < 500ms p95 |
-| Poll interval | 30 mins (configurable) |
-| Uptime | 99%+ via UptimeRobot |
-| Mobile responsive | Yes |
+| Webhook response time | < 200ms (GitHub expects fast ACK) |
+| Pipeline processing | < 15 seconds per event |
+| ML classifier inference | < 10ms |
+| Uptime | 99%+ (UptimeRobot keepalive) |
+| Webhook security | HMAC-SHA256 signature verified on every request |
+| Auth protection | Next.js middleware on all routes |
+| Tracking when app closed | Yes — APScheduler on Koyeb runs 24/7 |
+| Deployment cost | ₹0 — 100% free tier |
 
 ---
 
-## 8. Out of Scope (v1)
+## 8. What This Signals to Recruiters
 
-- Private repos, GitLab/Bitbucket, team collaboration, payments, mobile app
-
----
-
-## 9. Success Criteria (Portfolio Target)
-
-- Live deployed demo with real repo being monitored
-- ML model with documented accuracy on README
-- Clean GitHub repo that an interviewer can read in 10 minutes
-- Able to explain every technical decision confidently in interview
+| Skill | How Orbiter Demonstrates It |
+|---|---|
+| ML Engineering | Trained real classifier, feature engineering, SMOTE, F1 evaluation |
+| AI Engineering | LangChain ReAct agent, RAG pipeline, custom tools, structured LLM output |
+| Systems Design | Webhooks, event routing, background tasks, Redis cache, WebSocket |
+| Product Thinking | Solves real maintainer pain, not just a tech demo |
+| Open Source Fluency | Built for OSS orgs — GSoC mentors personally relate to the problem |
+| Backend Engineering | FastAPI, async, Supabase, GitHub App integration |
 
 ---
 
-*PRD v2.0 — RepoMind*
+## 9. Out of Scope (v1)
+
+- Private repo support (needs OAuth token per user — Phase 3)
+- GitLab / Bitbucket
+- Running actual test suites (requires repo-specific CI setup)
+- Payments / tiers
+
+---
+
+## 10. Success Criteria
+
+- Live GitHub App installable on any public repo
+- Demo: open real issue → Orbiter labels + comments in < 15 seconds
+- ML model accuracy documented in README with confusion matrix
+- Clean codebase an interviewer can read in 10 minutes
+- Can explain every technical decision in depth
+
+---
+
+*PRD v1.0 — Orbiter*
