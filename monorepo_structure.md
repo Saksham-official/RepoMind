@@ -1,80 +1,92 @@
 # Monorepo Structure
 
-RepoMind is organized as a single repository containing the backend, frontend, and offline ML training utilities.
+Orbiter is organized as a single repository containing the backend, frontend, and offline ML training utilities.
 
 ```
-repomind/
+orbiter/
 ├── backend/
-│   ├── main.py                    # Entry point; sets up FastAPI and APScheduler
-│   ├── requirements.txt           # Python dependency list
-│   ├── .env.example               # Template for environment variables
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── .env.example
 │   │
 │   ├── api/v1/
-│   │   ├── auth.py                # JWT + Google OAuth routes
-│   │   ├── repos.py               # Repository endpoints + manual reindex
-│   │   ├── commits.py             # Fetching commit history
-│   │   ├── agent.py               # Explicit manual trigger options
-│   │   └── ws.py                  # WebSocket connection manager
+│   │   ├── auth.py              # JWT + Google OAuth via Supabase
+│   │   ├── repos.py             # Add/remove repos, reindex trigger
+│   │   ├── commits.py           # Commit history + analysis
+│   │   ├── issues.py            # Issue triage log
+│   │   ├── actions.py           # AI action audit trail
+│   │   └── ws.py                # WebSocket live feed
+│   │
+│   ├── webhooks/
+│   │   ├── handler.py           # POST /webhooks/github (entry point)
+│   │   ├── security.py          # HMAC-SHA256 signature verification
+│   │   └── router.py            # Route event type → pipeline
+│   │
+│   ├── pipelines/
+│   │   ├── issue_triage.py      # Issue → classify → label → comment
+│   │   ├── contributor_help.py  # Question → RAG → answer
+│   │   └── commit_intel.py      # Commit → classify → analyze → score
 │   │
 │   ├── core/
-│   │   ├── config.py              # Environment configuration management
-│   │   ├── security.py            # Route dependencies for auth
-│   │   │
+│   │   ├── config.py
+│   │   ├── security.py          # JWT validation dependency
 │   │   ├── ml/
-│   │   │   ├── classifier.py      # Random Forest scikit-learn .pkl integration
-│   │   │   └── features.py        # Text vectorization and feature extraction
-│   │   │
+│   │   │   ├── classifier.py    # Load .pkl, classify text
+│   │   │   └── features.py      # Feature extraction
 │   │   ├── agent/
-│   │   │   ├── pipeline.py        # LangChain setup (ReAct)
-│   │   │   ├── tools.py           # Custom LangChain Tools for GitHub/Chroma
-│   │   │   └── prompts.py         # Base LLM Context
-│   │   │
+│   │   │   ├── pipeline.py      # LangChain agent orchestration
+│   │   │   └── tools.py         # search_codebase, git_blame, post_comment etc.
 │   │   └── rag/
-│   │       ├── indexer.py         # Parsing / Chunking / Embedding code
-│   │       └── retriever.py       # Query execution for ChromaDB
+│   │       ├── indexer.py       # Codebase + docs + issues → ChromaDB
+│   │       └── retriever.py     # Multi-collection semantic search
 │   │
 │   ├── services/
-│   │   ├── github.py              # PyGithub API abstraction
-│   │   ├── scheduler.py           # Background monitoring loop (APScheduler)
-│   │   ├── email.py               # Sending Resend digests
-│   │   └── cache.py               # Upstash Redis wrapper
+│   │   ├── github_app.py        # GitHub App auth + installation tokens
+│   │   ├── scheduler.py         # APScheduler jobs
+│   │   ├── email.py             # Resend digests
+│   │   ├── cache.py             # Upstash Redis
+│   │   └── websocket_manager.py # WebSocket connection manager
 │   │
 │   ├── db/
-│   │   └── supabase.py            # Postgres/Auth Supabase Client API
+│   │   └── supabase.py
 │   │
 │   ├── models/
-│   │   └── schemas.py             # Pydantic schemas
+│   │   └── schemas.py
 │   │
-│   ├── ml_training/               # Scripts to train ML offline
-│   │   ├── collect_data.py        # GitHub Archive ingestion
-│   │   ├── train.py               # Train and evaluate .pkl classifier
-│   │   └── commit_classifier.pkl  # Resultant trained artifact
+│   ├── ml_training/
+│   │   ├── collect_data.py      # GitHub Archive + labeled issues dataset
+│   │   ├── train.py             # Train unified classifier
+│   │   └── classifier.pkl       # Committed after training
 │   │
-│   └── Dockerfile                 # Image build definition for Koyeb deployment
+│   └── Dockerfile
 │
 ├── frontend/
-│   ├── middleware.ts              # Next.js Edge Runtime Route Protection
+│   ├── middleware.ts             # Auth guard — runs at Vercel Edge
 │   ├── app/
-│   │   ├── layout.tsx             # Global layout (Next.js App Router)
-│   │   ├── page.tsx               # Public landing
-│   │   ├── login/page.tsx         # Authentication
-│   │   ├── dashboard/page.tsx     # Monitored repositories list
-│   │   ├── repo/[id]/page.tsx     # Single repo dashboard & logs
-│   │   └── settings/page.tsx      # Email notifications configuration
+│   │   ├── layout.tsx
+│   │   ├── page.tsx             # Landing (public)
+│   │   ├── login/page.tsx       # Login (public)
+│   │   ├── dashboard/page.tsx   # Repo overview (protected)
+│   │   ├── repo/[id]/
+│   │   │   ├── page.tsx         # Repo detail (protected)
+│   │   │   ├── issues/page.tsx  # Issue triage log
+│   │   │   └── commits/page.tsx # Commit timeline
+│   │   └── settings/page.tsx    # Webhook config (protected)
 │   │
 │   ├── components/
-│   │   ├── ui/                    # Shadcn component primitives
-│   │   ├── CommitCard.tsx         # Details for single commit log
-│   │   ├── RepoHealthScore.tsx    # SVG GSAP animated visualization
-│   │   ├── ActivityFeed.tsx       # WebSocket UI client
-│   │   ├── TypeBadge.tsx          # UI element for classification tagging
-│   │   ├── ReindexButton.tsx      # CTA for triggering repo-wise full refresh
-│   │   └── TerminalLoader.tsx     # Indexing progress feedback animation
+│   │   ├── ui/
+│   │   ├── ActionCard.tsx        # AI action with reasoning expandable
+│   │   ├── CommitCard.tsx        # Commit with ML badge
+│   │   ├── IssueTriageCard.tsx   # Issue with classification + actions taken
+│   │   ├── RepoHealthScore.tsx   # GSAP radial score
+│   │   ├── ActivityFeed.tsx      # Live WebSocket feed
+│   │   ├── ReindexButton.tsx     # Manual reindex with progress
+│   │   └── TypeBadge.tsx         # bug/feature/question/breaking badges
 │   │
 │   └── lib/
-│       ├── api.ts                 # Fetch wrappers
-│       ├── websocket.ts           # WS connection hook logic
-│       └── supabase.ts            # Client-side Supabase adapter
+│       ├── api.ts
+│       ├── websocket.ts
+│       └── supabase.ts
 │
 └── README.md
 ```
