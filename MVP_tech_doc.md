@@ -1,34 +1,31 @@
 # MVP Technical Document
-## RepoMind — Build Guide
-**Version:** 1.0 | **Date:** March 2026 | **Timeline:** 4 weeks
+## Orbiter — Build Guide
+**Version:** 1.0 | **Date:** March 2026 | **Timeline:** 5 weeks
 
 ---
 
 ## 1. MVP Scope
 
-Build the full core loop end-to-end:
-✅ Add repo → index codebase → monitor commits → ML classify → agent analyzes → dashboard shows live → email digest sent
-✅ Route-level auth protection (middleware — no page accessible without login)
-✅ Manual re-index trigger (refresh codebase on demand)
-✅ Background tracking always-on (works when app is closed)
-✅ 100% free deployment — no local setup, no paid APIs
+```
+✅ GitHub App setup (webhooks, real-time events)
+✅ Issue Triage Agent (classify → label → assign → comment)
+✅ Contributor Helper (question → RAG → answer)
+✅ Commit Intelligence from v1 (classifier, embeddings, health score)
+✅ Live dashboard with audit trail (WebSocket)
+✅ Route auth protection (Next.js middleware)
+✅ Manual re-index trigger
+✅ Always-on background tracking (APScheduler on Koyeb)
+✅ 100% free deployment — no local setup required
+```
 
-That's a complete, impressive, deployable product.
+Phase 2 (post-MVP): PR Reviewer, Release Assistant, stale issue closer.
 
 ---
 
-### Why closing the app doesn't stop tracking
-
-The scheduler lives inside your **FastAPI process on Koyeb** — not in the browser. When a user closes the tab or shuts their laptop, the backend is still running on Koyeb's servers, polling GitHub every 30 minutes for every monitored repo. The frontend is just a display layer. It shows what the backend already collected. Open the app tomorrow and all commits from overnight are already analyzed and waiting.
-
----
-
-## 2. Full Tech Stack (100% Free, Cloud-Only)
-
-> ⚠️ **No local setup needed.** Everything runs on free cloud tiers. Just push to GitHub and it's live.
+## 2. Tech Stack (100% Free, Cloud-Only)
 
 ```
-Frontend        Next.js 14 (App Router)
+Frontend        Next.js 14 (App Router) + middleware.ts auth guard
 Styling         Tailwind CSS
 Animations      Framer Motion + GSAP + Magic UI
 Icons           Lucide React
@@ -36,26 +33,27 @@ UI Components   Shadcn/ui
 
 Backend         FastAPI (Python 3.11) + Uvicorn
 Scheduler       APScheduler (in-process, always-on on Koyeb)
-Agent           LangChain (ReAct agent + tools)
-LLM Primary     Google Gemini 1.5 Flash  → free: 1M tokens/day, 15 RPM
-LLM Fallback    Groq API — Llama 3.1 70B → free: 14,400 req/day
+Agent           LangChain (ReAct agent + custom tools)
+LLM Primary     Google Gemini 1.5 Flash  → free: 1M tokens/day
+LLM Fallback    Groq — Llama 3.1 70B     → free: 14,400 req/day
 Embeddings      BAAI/bge-base-en-v1.5    → free: runs in Koyeb container
-Vector DB       ChromaDB                 → free: persistent disk on Koyeb
-ML Model        scikit-learn RandomForest → free: .pkl served locally
-GitHub API      PyGithub                 → free: 5,000 req/hr (authenticated)
+Vector DB       ChromaDB                 → free: Koyeb persistent disk
+ML Model        scikit-learn RandomForest → free: .pkl in repo
+GitHub          PyGithub + github-app-token → free: 5k/hr per install
 
 Database        Supabase Postgres        → free: 500MB
-Auth            Supabase Auth            → free: Google OAuth built-in
+Auth            Supabase Auth + Google OAuth → free
 Storage         Supabase Storage         → free: 1GB
-Cache           Upstash Redis            → free: 10,000 commands/day
-Email           Resend                   → free: 3,000 emails/month
+Cache           Upstash Redis            → free: 10,000 req/day
+Email           Resend                   → free: 3,000/month
+Webhooks        GitHub App               → free: unlimited
 Real-time       FastAPI WebSockets       → free: built-in
 
 Deploy BE       Koyeb                    → free: never sleeps, persistent disk
-Deploy FE       Vercel                   → free: auto-deploy, global CDN
+Deploy FE       Vercel                   → free: auto-deploy, Edge CDN
 CI/CD           GitHub Actions           → free: public repos
 Uptime          UptimeRobot              → free: 5-min ping
-Domain          is-a.dev subdomain       → free: yourname.is-a.dev
+Domain          is-a.dev                 → free: yourname.is-a.dev
 ```
 
 ---
@@ -63,76 +61,85 @@ Domain          is-a.dev subdomain       → free: yourname.is-a.dev
 ## 3. Project Structure
 
 ```
-repomind/
+orbiter/
 ├── backend/
 │   ├── main.py
 │   ├── requirements.txt
 │   ├── .env.example
 │   │
 │   ├── api/v1/
-│   │   ├── auth.py           # JWT + Google OAuth via Supabase
-│   │   ├── repos.py          # Add/remove/list repos + reindex trigger
-│   │   ├── commits.py        # Commit history + analysis
-│   │   ├── agent.py          # Trigger agent manually
-│   │   └── ws.py             # WebSocket feed endpoint
+│   │   ├── auth.py              # JWT + Google OAuth via Supabase
+│   │   ├── repos.py             # Add/remove repos, reindex trigger
+│   │   ├── commits.py           # Commit history + analysis
+│   │   ├── issues.py            # Issue triage log
+│   │   ├── actions.py           # AI action audit trail
+│   │   └── ws.py                # WebSocket live feed
+│   │
+│   ├── webhooks/
+│   │   ├── handler.py           # POST /webhooks/github (entry point)
+│   │   ├── security.py          # HMAC-SHA256 signature verification
+│   │   └── router.py            # Route event type → pipeline
+│   │
+│   ├── pipelines/
+│   │   ├── issue_triage.py      # Issue → classify → label → comment
+│   │   ├── contributor_help.py  # Question → RAG → answer
+│   │   └── commit_intel.py      # Commit → classify → analyze → score
 │   │
 │   ├── core/
-│   │   ├── config.py         # Settings via pydantic-settings
-│   │   ├── security.py       # JWT validation dependency
-│   │   │
+│   │   ├── config.py
+│   │   ├── security.py          # JWT validation dependency
 │   │   ├── ml/
-│   │   │   ├── classifier.py # Load + serve .pkl model
-│   │   │   └── features.py   # Feature extraction for commits
-│   │   │
+│   │   │   ├── classifier.py    # Load .pkl, classify text
+│   │   │   └── features.py      # Feature extraction
 │   │   ├── agent/
-│   │   │   ├── pipeline.py   # Main agent orchestration
-│   │   │   ├── tools.py      # All 5 LangChain tools
-│   │   │   └── prompts.py    # System prompts
-│   │   │
+│   │   │   ├── pipeline.py      # LangChain agent orchestration
+│   │   │   └── tools.py         # search_codebase, git_blame, post_comment etc.
 │   │   └── rag/
-│   │       ├── indexer.py    # Codebase → ChromaDB (+ reindex)
-│   │       └── retriever.py  # Semantic search
+│   │       ├── indexer.py       # Codebase + docs + issues → ChromaDB
+│   │       └── retriever.py     # Multi-collection semantic search
 │   │
 │   ├── services/
-│   │   ├── github.py         # GitHub API wrapper
-│   │   ├── scheduler.py      # APScheduler (always-on background)
-│   │   ├── email.py          # Resend digest sender
-│   │   └── cache.py          # Upstash Redis
+│   │   ├── github_app.py        # GitHub App auth + installation tokens
+│   │   ├── scheduler.py         # APScheduler jobs
+│   │   ├── email.py             # Resend digests
+│   │   ├── cache.py             # Upstash Redis
+│   │   └── websocket_manager.py # WebSocket connection manager
 │   │
 │   ├── db/
-│   │   └── supabase.py       # Supabase client
+│   │   └── supabase.py
 │   │
 │   ├── models/
-│   │   └── schemas.py        # Pydantic request/response models
+│   │   └── schemas.py
 │   │
-│   ├── ml_training/          # Run once via GitHub Actions to train
-│   │   ├── collect_data.py   # Fetch GitHub Archive data
-│   │   ├── train.py          # Train + evaluate classifier
-│   │   └── commit_classifier.pkl  # Committed to repo after training
+│   ├── ml_training/
+│   │   ├── collect_data.py      # GitHub Archive + labeled issues dataset
+│   │   ├── train.py             # Train unified classifier
+│   │   └── classifier.pkl       # Committed after training
 │   │
 │   └── Dockerfile
 │
 ├── frontend/
-│   ├── middleware.ts              # ← AUTH GUARD (runs on Edge, before any page)
+│   ├── middleware.ts             # Auth guard — runs at Vercel Edge
 │   ├── app/
 │   │   ├── layout.tsx
-│   │   ├── page.tsx               # Landing page (public)
-│   │   ├── login/page.tsx         # Login page (public)
-│   │   ├── dashboard/
-│   │   │   └── page.tsx           # Protected
-│   │   ├── repo/
-│   │   │   └── [id]/page.tsx      # Protected
-│   │   └── settings/
-│   │       └── page.tsx           # Protected
+│   │   ├── page.tsx             # Landing (public)
+│   │   ├── login/page.tsx       # Login (public)
+│   │   ├── dashboard/page.tsx   # Repo overview (protected)
+│   │   ├── repo/[id]/
+│   │   │   ├── page.tsx         # Repo detail (protected)
+│   │   │   ├── issues/page.tsx  # Issue triage log
+│   │   │   └── commits/page.tsx # Commit timeline
+│   │   └── settings/page.tsx    # Webhook config (protected)
 │   │
 │   ├── components/
-│   │   ├── ui/                    # Shadcn components
-│   │   ├── CommitCard.tsx         # Animated commit with ML badge
-│   │   ├── RepoHealthScore.tsx    # Animated radial score
-│   │   ├── ActivityFeed.tsx       # Live WebSocket feed
-│   │   ├── TypeBadge.tsx          # bug_fix / feature / breaking badges
-│   │   ├── ReindexButton.tsx      # Manual re-index trigger with progress
-│   │   └── TerminalLoader.tsx     # Indexing progress animation
+│   │   ├── ui/
+│   │   ├── ActionCard.tsx        # AI action with reasoning expandable
+│   │   ├── CommitCard.tsx        # Commit with ML badge
+│   │   ├── IssueTriageCard.tsx   # Issue with classification + actions taken
+│   │   ├── RepoHealthScore.tsx   # GSAP radial score
+│   │   ├── ActivityFeed.tsx      # Live WebSocket feed
+│   │   ├── ReindexButton.tsx     # Manual reindex with progress
+│   │   └── TypeBadge.tsx         # bug/feature/question/breaking badges
 │   │
 │   └── lib/
 │       ├── api.ts
@@ -146,36 +153,37 @@ repomind/
 
 ## 4. Environment Variables
 
-> All variables go in **Koyeb dashboard** (backend) and **Vercel dashboard** (frontend). Never in code. Never committed to git.
-
 ```env
-# .env.example — copy this, fill values, add to platform dashboards
+# .env.example — add all to Koyeb dashboard (backend) + Vercel (frontend)
 
-# LLM (both free tiers — sign up at aistudio.google.com and console.groq.com)
+# GitHub App (register at github.com/settings/apps/new)
+GITHUB_APP_ID=                        # Numeric App ID
+GITHUB_APP_PRIVATE_KEY=               # Full PEM key (multiline — use \n in env)
+GITHUB_WEBHOOK_SECRET=                # Random string you set during App creation
+GITHUB_CLIENT_ID=                     # For OAuth (optional)
+GITHUB_CLIENT_SECRET=                 # For OAuth (optional)
+
+# LLM (free — aistudio.google.com + console.groq.com)
 GEMINI_API_KEY=
 GROQ_API_KEY=
 
-# GitHub PAT (free — github.com/settings/tokens → classic → public_repo scope)
-# Needed for: posting comments + higher rate limits (5000/hr vs 60/hr)
-GITHUB_TOKEN=
-
-# Supabase (free — supabase.com → new project)
+# Supabase (free — supabase.com)
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_KEY=
 
-# Upstash Redis (free — console.upstash.com → create database → REST API)
+# Upstash Redis (free — console.upstash.com)
 UPSTASH_REDIS_URL=
 UPSTASH_REDIS_TOKEN=
 
-# Resend (free — resend.com → API Keys)
+# Resend (free — resend.com)
 RESEND_API_KEY=
-FROM_EMAIL=noreply@yourdomain.is-a.dev
+FROM_EMAIL=noreply@orbiter.is-a.dev
 
-# App config
-JWT_SECRET_KEY=generate_64_char_random_string
-FRONTEND_URL=https://your-app.vercel.app
-CHROMA_PERSIST_DIR=/app/chroma_db   # Koyeb persistent disk path
+# App
+JWT_SECRET_KEY=                       # 64-char random string
+FRONTEND_URL=https://orbiter.vercel.app
+CHROMA_PERSIST_DIR=/app/chroma_db     # Koyeb persistent disk
 ENVIRONMENT=production
 ```
 
@@ -183,72 +191,455 @@ ENVIRONMENT=production
 
 ## 5. Core Code
 
-### 5.1 `main.py`
+### 5.1 `webhooks/handler.py` — Entry Point
 
 ```python
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from api.v1 import auth, repos, commits, ws
-from core.ml.classifier import load_classifier
-from services.scheduler import start_scheduler
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
+from webhooks.security import verify_github_webhook
+from webhooks.router import route_event
+from db.supabase import supabase
 from core.config import settings
+import json
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    load_classifier()          # Load .pkl model into memory
-    await start_scheduler()    # Start background GitHub polling
-    yield
+router = APIRouter()
 
-app = FastAPI(title="RepoMind API", version="1.0.0", lifespan=lifespan)
+@router.post("/webhooks/github")
+async def github_webhook(request: Request, background_tasks: BackgroundTasks):
+    """
+    Receives all GitHub App events.
+    Must ACK within 10 seconds — all processing in background.
+    """
+    payload_bytes = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    delivery_id = request.headers.get("X-GitHub-Delivery", "")
+    event_type = request.headers.get("X-GitHub-Event", "")
 
-app.add_middleware(CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
-    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    # 1. Verify HMAC signature — reject anything not from GitHub
+    if not verify_github_webhook(payload_bytes, signature, settings.GITHUB_WEBHOOK_SECRET):
+        raise HTTPException(401, "Invalid webhook signature")
 
-app.include_router(auth.router,    prefix="/api/v1/auth")
-app.include_router(repos.router,   prefix="/api/v1/repos")
-app.include_router(commits.router, prefix="/api/v1/commits")
-app.include_router(ws.router,      prefix="/api/v1")
+    payload = json.loads(payload_bytes)
 
-@app.get("/api/v1/health")
-async def health():
-    return {"status": "ok"}
+    # 2. Idempotency — don't process duplicate deliveries
+    existing = supabase.table("webhook_events")\
+        .select("id").eq("delivery_id", delivery_id).execute()
+    if existing.data:
+        return {"status": "already_processed"}
+
+    # 3. Log event
+    supabase.table("webhook_events").insert({
+        "delivery_id": delivery_id,
+        "event_type": event_type,
+        "repo_full_name": payload.get("repository", {}).get("full_name"),
+        "payload": payload,
+        "processed": False
+    }).execute()
+
+    # 4. ACK immediately — GitHub needs response fast
+    # 5. Process in background — never block the response
+    background_tasks.add_task(route_event, event_type, payload, delivery_id)
+
+    return {"status": "accepted", "delivery_id": delivery_id}
 ```
 
-### 5.2 `frontend/middleware.ts` — Auth Guard (THE FIX)
+### 5.2 `webhooks/security.py`
 
-> This is the correct way to protect routes in Next.js. It runs on the **Edge runtime before any page loads** — the user never sees a protected page without a valid session. This is why your previous project had the issue: it checked auth client-side (after page load) instead of at the middleware level.
+```python
+import hmac
+import hashlib
+
+def verify_github_webhook(payload_bytes: bytes, signature_header: str,
+                          secret: str) -> bool:
+    """Verify GitHub HMAC-SHA256 webhook signature."""
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+    expected = hmac.new(
+        secret.encode("utf-8"), payload_bytes, hashlib.sha256
+    ).hexdigest()
+    received = signature_header[len("sha256="):]
+    return hmac.compare_digest(expected, received)  # Timing-attack safe
+```
+
+### 5.3 `webhooks/router.py`
+
+```python
+from pipelines.issue_triage import run_issue_triage
+from pipelines.contributor_help import run_contributor_help
+from pipelines.commit_intel import run_commit_intel
+from core.ml.classifier import classify_text
+from db.supabase import supabase
+
+async def route_event(event_type: str, payload: dict, delivery_id: str):
+    """Route GitHub events to the correct pipeline."""
+    try:
+        repo_full = payload.get("repository", {}).get("full_name", "")
+        repo = get_repo_from_db(repo_full)
+        if not repo:
+            return  # Repo not registered with Orbiter
+
+        if event_type == "issues" and payload.get("action") == "opened":
+            issue = payload["issue"]
+
+            # Quick ML classification to route correctly
+            classification = classify_text(
+                f"{issue['title']} {issue['body'] or ''}"
+            )
+
+            if classification["type"] == "question":
+                await run_contributor_help(issue, repo)
+            else:
+                await run_issue_triage(issue, repo, classification)
+
+        elif event_type == "push":
+            commits = payload.get("commits", [])
+            for commit in commits:
+                await run_commit_intel(commit, repo)
+
+        # Mark as processed
+        supabase.table("webhook_events")\
+            .update({"processed": True})\
+            .eq("delivery_id", delivery_id)\
+            .execute()
+
+    except Exception as e:
+        supabase.table("webhook_events")\
+            .update({"error": str(e)})\
+            .eq("delivery_id", delivery_id)\
+            .execute()
+
+def get_repo_from_db(full_name: str):
+    parts = full_name.split("/")
+    if len(parts) != 2:
+        return None
+    result = supabase.table("repositories")\
+        .select("*")\
+        .eq("owner", parts[0])\
+        .eq("repo_name", parts[1])\
+        .execute()
+    return result.data[0] if result.data else None
+```
+
+### 5.4 `pipelines/issue_triage.py`
+
+```python
+from core.ml.classifier import classify_text
+from core.rag.retriever import search_issues
+from core.agent.pipeline import run_agent
+from services.github_app import get_github_client
+from services.cache import get_cached, set_cached
+from db.supabase import supabase
+from services.websocket_manager import ws_manager
+import json
+
+async def run_issue_triage(issue: dict, repo: dict, classification: dict):
+    """
+    Full issue triage pipeline:
+    1. Duplicate detection via embeddings
+    2. Owner suggestion via git blame
+    3. Agent decides actions
+    4. Execute on GitHub
+    """
+    gh = get_github_client(repo["installation_id"])
+    gh_repo = gh.get_repo(f"{repo['owner']}/{repo['repo_name']}")
+
+    # Step 1: Duplicate detection
+    similar_issues = await search_issues(
+        query=f"{issue['title']} {issue['body'] or ''}",
+        repo_id=repo["id"],
+        k=3
+    )
+    duplicate = None
+    if similar_issues and similar_issues[0]["score"] > 0.88:
+        duplicate = similar_issues[0]
+
+    # Step 2: Owner suggestion
+    suggested_owner = await suggest_owner(
+        issue_text=f"{issue['title']} {issue['body'] or ''}",
+        repo=repo, gh_repo=gh_repo
+    )
+
+    # Step 3: Agent decides actions
+    agent_input = f"""
+    Repository: {repo['owner']}/{repo['repo_name']}
+    New Issue #{issue['number']}: {issue['title']}
+    Body: {issue['body'] or 'No description'}
+    Classification: {classification['type']} (confidence: {classification['confidence']})
+    Duplicate of: Issue #{duplicate['number']} - {duplicate['title']} (similarity: {duplicate['score']:.2f}) {'(FOUND)' if duplicate else '(NONE)'}
+    Suggested owner: {suggested_owner or 'unknown'}
+
+    Decide what actions to take. Available actions:
+    - add_label(label): bug, enhancement, question, duplicate, needs-reproduction, good-first-issue
+    - post_comment(body): post a helpful comment
+    - suggest_assignee(username): suggest who should handle this
+    """
+
+    result = await run_agent(agent_input, repo)
+    actions_taken = parse_agent_actions(result)
+
+    # Step 4: Execute on GitHub
+    executed = []
+    for action in actions_taken:
+        try:
+            if action["type"] == "add_label":
+                # Create label if it doesn't exist
+                ensure_label_exists(gh_repo, action["value"])
+                gh_repo.get_issue(issue["number"]).add_to_labels(action["value"])
+                executed.append(action)
+
+            elif action["type"] == "post_comment":
+                footer = "\n\n---\n*🤖 Orbiter AI · [View reasoning](https://orbiter.is-a.dev)*"
+                gh_repo.get_issue(issue["number"]).create_comment(
+                    action["value"] + footer
+                )
+                executed.append(action)
+
+            elif action["type"] == "suggest_assignee" and action["value"]:
+                # Post as comment (not force-assign — let maintainer decide)
+                gh_repo.get_issue(issue["number"]).create_comment(
+                    f"👋 Suggested assignee based on codebase history: @{action['value']}"
+                )
+                executed.append(action)
+        except Exception as e:
+            print(f"Action failed: {action} — {e}")
+
+    # Step 5: Save to DB + push to dashboard
+    action_record = {
+        "repo_id": repo["id"],
+        "event_type": "issue_triage",
+        "target_type": "issue",
+        "target_number": issue["number"],
+        "actions_taken": executed,
+        "reasoning": result,
+        "ml_classification": classification
+    }
+    supabase.table("ai_actions").insert(action_record).execute()
+    supabase.table("issues").insert({
+        "repo_id": repo["id"],
+        "github_issue_id": issue["id"],
+        "number": issue["number"],
+        "title": issue["title"],
+        "body": issue["body"],
+        "classified_type": classification["type"],
+        "confidence": classification["confidence"],
+        "is_duplicate": duplicate is not None,
+        "duplicate_of": duplicate["number"] if duplicate else None,
+        "suggested_owner": suggested_owner,
+        "orbiter_responded": True
+    }).execute()
+
+    await ws_manager.broadcast_to_repo(repo["id"], {
+        "type": "issue_triaged",
+        "issue_number": issue["number"],
+        "issue_title": issue["title"],
+        "classification": classification["type"],
+        "actions": [a["type"] for a in executed],
+        "message": f"Triaged issue #{issue['number']}: {issue['title']}"
+    })
+
+
+async def suggest_owner(issue_text: str, repo: dict, gh_repo) -> str | None:
+    """Find who should own this issue based on related code."""
+    from core.rag.retriever import search_codebase
+    related_files = await search_codebase(issue_text, repo["id"], k=3)
+    if not related_files:
+        return None
+
+    contributor_scores = {}
+    for file_chunk in related_files:
+        filepath = file_chunk["metadata"].get("file_path", "")
+        if not filepath:
+            continue
+        cache_key = f"blame:{repo['owner']}_{repo['repo_name']}_{filepath}"
+        cached = await get_cached(cache_key)
+        if cached:
+            commits = json.loads(cached)
+        else:
+            try:
+                commits = list(gh_repo.get_commits(path=filepath))[:10]
+                commits = [c.author.login for c in commits if c.author]
+                await set_cached(cache_key, json.dumps(commits), ttl=3600)
+            except Exception:
+                continue
+        for author in commits:
+            contributor_scores[author] = contributor_scores.get(author, 0) + 1
+
+    if not contributor_scores:
+        return None
+    return max(contributor_scores, key=contributor_scores.get)
+```
+
+### 5.5 `pipelines/contributor_help.py`
+
+```python
+from core.rag.retriever import multi_collection_search
+from core.agent.pipeline import get_llm
+from services.github_app import get_github_client
+from services.websocket_manager import ws_manager
+from db.supabase import supabase
+from langchain_core.prompts import ChatPromptTemplate
+
+ANSWER_PROMPT = """You are a helpful open-source maintainer answering a contributor question.
+
+Answer based ONLY on the provided context from the repository.
+Be specific. Reference exact file names and sections.
+Use a friendly, welcoming tone — this person is trying to contribute.
+If the context doesn't fully answer the question, say what you do know
+and what they might need to find themselves.
+
+Context from repository:
+{context}
+
+Question: {question}
+
+Answer:"""
+
+async def run_contributor_help(issue: dict, repo: dict):
+    """Answer contributor questions using RAG over repo docs + past issues."""
+    gh = get_github_client(repo["installation_id"])
+    gh_repo = gh.get_repo(f"{repo['owner']}/{repo['repo_name']}")
+
+    question = f"{issue['title']} {issue['body'] or ''}"
+
+    # Multi-collection RAG: docs + past issues + code
+    chunks = await multi_collection_search(
+        query=question,
+        repo_id=repo["id"],
+        collections=["docs", "issues", "code"],
+        k_per_collection=4
+    )
+
+    if not chunks:
+        # No context → honest fallback
+        answer = (
+            "Thanks for your question! I don't have enough context "
+            "in the repository docs to answer this fully. "
+            "Please check the README and CONTRIBUTING.md, "
+            "or a maintainer will follow up shortly."
+        )
+        confidence = 0.0
+    else:
+        context = "\n\n---\n\n".join([
+            f"[{c['metadata'].get('source', 'repo')}]\n{c['content']}"
+            for c in chunks
+        ])
+
+        prompt = ChatPromptTemplate.from_template(ANSWER_PROMPT)
+        llm = get_llm()
+        chain = prompt | llm
+        answer = (await chain.ainvoke({
+            "context": context,
+            "question": question
+        })).content
+
+        # Confidence: how well did our chunks cover the question?
+        confidence = min(len(chunks) / 8, 1.0)
+
+    # Post answer
+    footer = "\n\n---\n*🤖 Orbiter AI answered based on repository docs and past issues.*"
+    sources = list(set([
+        c["metadata"].get("file_path", "")
+        for c in chunks if c["metadata"].get("file_path")
+    ]))[:3]
+    if sources:
+        footer += f"\n*Sources: {', '.join(sources)}*"
+
+    gh_repo.get_issue(issue["number"]).create_comment(answer + footer)
+    gh_repo.get_issue(issue["number"]).add_to_labels("question")
+
+    # Docs gap detection
+    if confidence < 0.5:
+        gap_title = f"docs: question not covered — \"{issue['title'][:60]}\""
+        gh_repo.create_issue(
+            title=gap_title,
+            body=f"A contributor asked:\n\n> {issue['title']}\n\n"
+                 f"Orbiter couldn't find a good answer in the docs. "
+                 f"Consider adding this to CONTRIBUTING.md.\n\n"
+                 f"Related issue: #{issue['number']}",
+            labels=["documentation"]
+        )
+
+    # Save + push
+    supabase.table("ai_actions").insert({
+        "repo_id": repo["id"],
+        "event_type": "contributor_help",
+        "target_type": "issue",
+        "target_number": issue["number"],
+        "actions_taken": [{"type": "post_answer", "confidence": confidence}],
+        "reasoning": f"Answered with {len(chunks)} context chunks, confidence {confidence:.2f}"
+    }).execute()
+
+    await ws_manager.broadcast_to_repo(repo["id"], {
+        "type": "question_answered",
+        "issue_number": issue["number"],
+        "confidence": confidence,
+        "message": f"Answered question #{issue['number']}: {issue['title'][:50]}"
+    })
+```
+
+### 5.6 `services/github_app.py`
+
+```python
+import time
+import jwt as pyjwt
+import httpx
+from github import Github, GithubIntegration
+from core.config import settings
+from services.cache import get_cached, set_cached
+import json
+
+def get_github_integration() -> GithubIntegration:
+    """GitHub App integration client (signs JWTs with private key)."""
+    return GithubIntegration(
+        integration_id=int(settings.GITHUB_APP_ID),
+        private_key=settings.GITHUB_APP_PRIVATE_KEY.replace("\\n", "\n")
+    )
+
+def get_github_client(installation_id: int) -> Github:
+    """
+    Get GitHub client authenticated for a specific repo installation.
+    Uses cached token (refreshed every 55 mins).
+    """
+    cache_key = f"github_token:{installation_id}"
+
+    # Check cache first
+    cached = get_cached_sync(cache_key)
+    if cached:
+        token_data = json.loads(cached)
+        return Github(token_data["token"])
+
+    # Generate new installation access token
+    integration = get_github_integration()
+    token = integration.get_access_token(installation_id)
+
+    # Cache for 55 mins (tokens last 60 mins)
+    set_cached_sync(cache_key, json.dumps({"token": token.token}), ttl=3300)
+
+    return Github(token.token)
+```
+
+### 5.7 `frontend/middleware.ts`
 
 ```typescript
-// frontend/middleware.ts
 import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-// Pages that don't require auth
-const PUBLIC_ROUTES = ["/", "/login", "/api/v1/health"]
+const PUBLIC_ROUTES = ["/", "/login"]
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
   const supabase = createMiddlewareClient({ req, res })
 
-  // Refresh session if expired (keeps user logged in)
   const { data: { session } } = await supabase.auth.getSession()
 
-  const isPublicRoute = PUBLIC_ROUTES.some(route =>
-    req.nextUrl.pathname === route ||
-    req.nextUrl.pathname.startsWith("/login")
-  )
+  const isPublic = PUBLIC_ROUTES.some(r => req.nextUrl.pathname === r)
 
-  // No session + trying to access protected route → redirect to login
-  if (!session && !isPublicRoute) {
-    const loginUrl = new URL("/login", req.url)
-    loginUrl.searchParams.set("redirect", req.nextUrl.pathname)
-    return NextResponse.redirect(loginUrl)
+  if (!session && !isPublic) {
+    const url = new URL("/login", req.url)
+    url.searchParams.set("redirect", req.nextUrl.pathname)
+    return NextResponse.redirect(url)
   }
 
-  // Has session + trying to access login → redirect to dashboard
   if (session && req.nextUrl.pathname === "/login") {
     return NextResponse.redirect(new URL("/dashboard", req.url))
   }
@@ -256,708 +647,134 @@ export async function middleware(req: NextRequest) {
   return res
 }
 
-// Apply middleware to ALL routes except Next.js internals and static files
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.png$).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.png$).*)"],
 }
 ```
 
-**Why the previous project broke:** Without middleware, Next.js renders pages on the client. When a user visits `/dashboard` directly, the JavaScript loads first, renders the page, *then* calls `useEffect` to check auth. There's a full render cycle where the page is visible. Middleware intercepts at the network level — before any HTML is sent — so a unauthenticated user never receives the protected page at all.
-
-### 5.3 `api/v1/repos.py` — Manual Re-index Endpoint
-
-```python
-from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
-from core.security import get_current_user
-from core.rag.indexer import index_repository, clear_repo_index
-from db.supabase import supabase
-from services.cache import invalidate_repo_cache
-
-router = APIRouter()
-
-@router.post("/{repo_id}/reindex")
-async def trigger_reindex(
-    repo_id: str,
-    background_tasks: BackgroundTasks,
-    user=Depends(get_current_user)
-):
-    """
-    Manually trigger a full re-index of the codebase.
-    Use this when: repo has major refactor, new branches merged,
-    or embeddings feel stale.
-    Runs in background — returns immediately, progress via WebSocket.
-    """
-    # Verify repo belongs to this user
-    repo = supabase.table("repositories")\
-        .select("*")\
-        .eq("id", repo_id)\
-        .eq("user_id", user.id)\
-        .single()\
-        .execute()
-
-    if not repo.data:
-        raise HTTPException(404, "Repo not found")
-
-    # Mark as re-indexing
-    supabase.table("repositories")\
-        .update({"is_indexed": False, "reindex_requested_at": "now()"})\
-        .eq("id", repo_id)\
-        .execute()
-
-    # Invalidate all cached queries for this repo
-    await invalidate_repo_cache(repo_id)
-
-    # Run in background — user sees progress via WebSocket
-    background_tasks.add_task(
-        _run_reindex,
-        repo_id=repo_id,
-        owner=repo.data["owner"],
-        repo_name=repo.data["repo_name"]
-    )
-
-    return {"status": "reindex_started", "message": "Watch the activity feed for progress"}
-
-async def _run_reindex(repo_id: str, owner: str, repo_name: str):
-    """Background task: clear old index, rebuild from scratch."""
-    try:
-        # Clear old ChromaDB collection for this repo
-        await clear_repo_index(repo_id)
-
-        # Re-index with progress callback pushing to WebSocket
-        from services.websocket_manager import ws_manager
-
-        async def progress_callback(files_done: int, current_file: str):
-            await ws_manager.broadcast_to_repo(repo_id, {
-                "type": "reindex_progress",
-                "files_done": files_done,
-                "current_file": current_file
-            })
-
-        files_indexed = await index_repository(
-            repo_id=repo_id,
-            owner=owner,
-            repo_name=repo_name,
-            progress_callback=progress_callback
-        )
-
-        # Mark complete
-        supabase.table("repositories")\
-            .update({"is_indexed": True, "last_indexed_at": "now()"})\
-            .eq("id", repo_id)\
-            .execute()
-
-        await ws_manager.broadcast_to_repo(repo_id, {
-            "type": "reindex_complete",
-            "files_indexed": files_indexed,
-            "message": f"✓ Re-indexed {files_indexed} files"
-        })
-
-    except Exception as e:
-        await ws_manager.broadcast_to_repo(repo_id, {
-            "type": "reindex_error",
-            "message": f"Re-index failed: {str(e)}"
-        })
-```
-
-### 5.4 `core/ml/classifier.py`
-
-```python
-import joblib
-import numpy as np
-from pathlib import Path
-
-_model = None
-
-def load_classifier():
-    global _model
-    model_path = Path("ml_training/commit_classifier.pkl")
-    if model_path.exists():
-        _model = joblib.load(model_path)
-        print(f"✓ ML classifier loaded")
-    else:
-        print("⚠ No trained model found. Run ml_training/train.py first.")
-
-def classify_commit(message: str, additions: int, deletions: int,
-                    files_changed: int) -> dict:
-    if _model is None:
-        return {"type": "unknown", "confidence": 0.0}
-
-    features = {
-        "message": message,
-        "additions": additions,
-        "deletions": deletions,
-        "files_changed": files_changed,
-        "has_breaking": any(kw in message.upper()
-                           for kw in ["BREAKING", "DEPRECAT", "REMOVED"]),
-    }
-
-    proba = _model.predict_proba([features])[0]
-    classes = _model.classes_
-    top_idx = np.argmax(proba)
-
-    return {
-        "type": classes[top_idx],
-        "confidence": round(float(proba[top_idx]), 3),
-        "scores": {c: round(float(p), 3) for c, p in zip(classes, proba)},
-        "is_breaking": classes[top_idx] == "breaking_change" or features["has_breaking"]
-    }
-```
-
-### 5.5 `core/agent/tools.py`
-
-```python
-from langchain.tools import tool
-from services.github import gh_client
-from core.rag.retriever import search_codebase
-from db.supabase import supabase
-
-@tool
-def get_commit_diff(sha: str, repo_full_name: str) -> str:
-    """Get the full code diff for a specific commit SHA."""
-    try:
-        repo = gh_client().get_repo(repo_full_name)
-        commit = repo.get_commit(sha)
-        diffs = []
-        for file in commit.files[:10]:  # Cap at 10 files
-            diffs.append(f"File: {file.filename}\n"
-                        f"Changes: +{file.additions} -{file.deletions}\n"
-                        f"Patch:\n{file.patch or '(binary)'}\n")
-        return "\n---\n".join(diffs)
-    except Exception as e:
-        return f"Error fetching diff: {e}"
-
-@tool
-def search_codebase_semantics(query: str, repo_id: str) -> str:
-    """Search the repo codebase using semantic similarity."""
-    results = search_codebase(query, repo_id, k=4)
-    if not results:
-        return "No relevant code found."
-    output = []
-    for doc in results:
-        output.append(f"File: {doc.metadata['file_path']}\n"
-                     f"Function: {doc.metadata.get('function_name', 'module-level')}\n"
-                     f"Code:\n{doc.page_content}")
-    return "\n---\n".join(output)
-
-@tool
-def find_related_issues(keywords: list[str], repo_full_name: str) -> str:
-    """Find open GitHub issues related to given keywords."""
-    try:
-        repo = gh_client().get_repo(repo_full_name)
-        issues = repo.get_issues(state="open")
-        related = []
-        for issue in list(issues)[:50]:
-            text = f"{issue.title} {issue.body or ''}".lower()
-            if any(kw.lower() in text for kw in keywords):
-                related.append(f"Issue #{issue.number}: {issue.title}\n"
-                               f"URL: {issue.html_url}")
-        return "\n\n".join(related) if related else "No related issues found."
-    except Exception as e:
-        return f"Error: {e}"
-
-@tool
-def post_github_comment(repo_full_name: str, issue_number: int, body: str) -> str:
-    """Post a comment on a GitHub issue or PR."""
-    try:
-        repo = gh_client().get_repo(repo_full_name)
-        issue = repo.get_issue(issue_number)
-        comment = issue.create_comment(
-            f"🤖 **RepoMind AI Agent**\n\n{body}\n\n"
-            f"*This comment was automatically generated by RepoMind.*"
-        )
-        return f"Comment posted: {comment.html_url}"
-    except Exception as e:
-        return f"Error posting comment: {e}"
-```
-
-### 5.6 `core/agent/pipeline.py`
-
-```python
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
-from langchain.agents import create_react_agent, AgentExecutor
-from langchain import hub
-from core.agent.tools import (get_commit_diff, search_codebase_semantics,
-                               find_related_issues, post_github_comment)
-from core.ml.classifier import classify_commit
-from core.config import settings
-
-TOOLS = [get_commit_diff, search_codebase_semantics,
-         find_related_issues, post_github_comment]
-
-AGENT_PROMPT = """You are RepoMind, an intelligent GitHub repository analyst.
-
-You receive information about a new commit and must:
-1. Understand what changed and why it matters
-2. Find any related open issues this commit might fix or affect  
-3. Post a helpful comment if you find a strong connection (confidence > 0.8)
-4. Provide a concise structured summary
-
-Always cite specific file names and issue numbers.
-If you cannot determine impact confidently, say so honestly.
-Never post a comment unless you are highly confident it is relevant.
-
-{tools}
-{tool_names}
-{agent_scratchpad}"""
-
-def get_llm():
-    try:
-        return ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=settings.GEMINI_API_KEY,
-            temperature=0.1)
-    except Exception:
-        return ChatGroq(
-            model="llama-3.1-70b-versatile",
-            api_key=settings.GROQ_API_KEY,
-            temperature=0.1)
-
-async def run_agent_pipeline(commit: dict, repo: dict) -> dict:
-    """Full pipeline: classify → agent analyze → structured output"""
-
-    # Step 1: ML classification
-    classification = classify_commit(
-        message=commit["message"],
-        additions=commit.get("additions", 0),
-        deletions=commit.get("deletions", 0),
-        files_changed=commit.get("files_changed", 0)
-    )
-
-    # Step 2: Agent analysis
-    llm = get_llm()
-    prompt = hub.pull("hwchase17/react")
-    agent = create_react_agent(llm, TOOLS, prompt)
-    executor = AgentExecutor(agent=agent, tools=TOOLS,
-                            max_iterations=6, verbose=False)
-
-    agent_input = (
-        f"Repository: {repo['owner']}/{repo['repo_name']}\n"
-        f"New commit SHA: {commit['sha']}\n"
-        f"Commit message: {commit['message']}\n"
-        f"ML Classification: {classification['type']} "
-        f"(confidence: {classification['confidence']})\n"
-        f"Is breaking change: {classification['is_breaking']}\n\n"
-        f"Analyze this commit, find related issues, and post a comment "
-        f"if highly relevant."
-    )
-
-    try:
-        result = await executor.ainvoke({"input": agent_input})
-        summary = result["output"]
-    except Exception as e:
-        summary = f"Agent analysis failed: {e}"
-
-    return {
-        "sha": commit["sha"],
-        "classification": classification,
-        "agent_summary": summary,
-        "repo_id": repo["id"]
-    }
-```
-
-### 5.7 `core/rag/indexer.py`
-
-```python
-import chromadb
-from sentence_transformers import SentenceTransformer
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from github import Github
-from core.config import settings
-import ast, re
-
-_embed_model = SentenceTransformer('BAAI/bge-base-en-v1.5')
-_chroma_client = chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIR)
-
-CODE_EXTENSIONS = {'.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.java',
-                   '.rs', '.cpp', '.c', '.rb', '.php', '.swift'}
-
-class LocalEmbedding:
-    def embed_documents(self, texts):
-        return _embed_model.encode(texts, show_progress_bar=False).tolist()
-    def embed_query(self, text):
-        return _embed_model.encode([text])[0].tolist()
-
-def get_collection(repo_id: str):
-    return _chroma_client.get_or_create_collection(
-        name=f"repo_{repo_id.replace('-', '_')}_code",
-        embedding_function=LocalEmbedding()
-    )
-
-async def index_repository(repo_id: str, owner: str, repo_name: str,
-                           progress_callback=None):
-    """Index entire codebase into ChromaDB."""
-    g = Github(settings.GITHUB_TOKEN)
-    repo = g.get_repo(f"{owner}/{repo_name}")
-    collection = get_collection(repo_id)
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800, chunk_overlap=150,
-        separators=["\nclass ", "\ndef ", "\n\n", "\n"])
-
-    contents = repo.get_contents("")
-    files_processed = 0
-    all_docs, all_metas, all_ids = [], [], []
-
-    while contents:
-        file = contents.pop(0)
-        if file.type == "dir":
-            contents.extend(repo.get_contents(file.path))
-            continue
-        ext = "." + file.path.split(".")[-1] if "." in file.path else ""
-        if ext not in CODE_EXTENSIONS or file.size > 100_000:
-            continue
-
-        try:
-            content = file.decoded_content.decode("utf-8", errors="ignore")
-            chunks = splitter.split_text(content)
-            for i, chunk in enumerate(chunks):
-                all_docs.append(chunk)
-                all_metas.append({
-                    "file_path": file.path,
-                    "language": ext.lstrip("."),
-                    "repo_id": repo_id,
-                    "chunk_index": i
-                })
-                all_ids.append(f"{repo_id}_{file.sha}_{i}")
-            files_processed += 1
-            if progress_callback:
-                await progress_callback(files_processed, file.path)
-        except Exception:
-            continue
-
-    # Batch upsert
-    batch_size = 100
-    for i in range(0, len(all_docs), batch_size):
-        collection.upsert(
-            documents=all_docs[i:i+batch_size],
-            metadatas=all_metas[i:i+batch_size],
-            ids=all_ids[i:i+batch_size]
-        )
-
-    return files_processed
-```
-
-### 5.8 `services/scheduler.py`
-
-```python
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-from db.supabase import supabase
-from services.github import get_new_commits
-from core.agent.pipeline import run_agent_pipeline
-from services.email import send_breaking_change_alert
-from core.config import settings
-import asyncio
-
-scheduler = AsyncIOScheduler()
-
-async def poll_all_repos():
-    """Check all monitored repos for new commits."""
-    repos = supabase.table("repositories")\
-        .select("*")\
-        .eq("is_indexed", True)\
-        .execute().data
-
-    for repo in repos:
-        try:
-            new_commits = await get_new_commits(
-                owner=repo["owner"],
-                repo_name=repo["repo_name"],
-                since=repo["last_checked_at"]
-            )
-            for commit in new_commits:
-                result = await run_agent_pipeline(commit, repo)
-
-                # Save to DB
-                supabase.table("commits").insert({
-                    "repo_id": repo["id"],
-                    "sha": result["sha"],
-                    "message": commit["message"],
-                    "commit_type": result["classification"]["type"],
-                    "confidence": result["classification"]["confidence"],
-                    "is_breaking": result["classification"]["is_breaking"],
-                    "agent_analysis": result["agent_summary"],
-                }).execute()
-
-                # Alert on breaking changes
-                if result["classification"]["is_breaking"]:
-                    await send_breaking_change_alert(repo, commit, result)
-
-            # Update last checked
-            supabase.table("repositories")\
-                .update({"last_checked_at": "now()"})\
-                .eq("id", repo["id"])\
-                .execute()
-
-        except Exception as e:
-            print(f"Error polling {repo['repo_name']}: {e}")
-
-async def start_scheduler():
-    scheduler.add_job(
-        poll_all_repos,
-        trigger=IntervalTrigger(minutes=30),
-        id="poll_repos",
-        replace_existing=True
-    )
-    scheduler.start()
-    print("✓ Scheduler started — polling every 30 mins")
-```
-
-### 5.9 `ml_training/train.py`
-
-```python
-"""
-Train the commit classifier.
-Run once: python ml_training/train.py
-Requires: ml_training/commits_dataset.csv
-  columns: message, additions, deletions, files_changed, label
-"""
-import pandas as pd
-import numpy as np
-import joblib
-from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, f1_score
-from sklearn.preprocessing import FunctionTransformer
-from imblearn.over_sampling import SMOTE
-from scipy.sparse import hstack
-
-df = pd.read_csv("ml_training/commits_dataset.csv")
-
-# Features
-X_text = df["message"].fillna("")
-X_num = df[["additions", "deletions", "files_changed"]].fillna(0).values
-y = df["label"]
-
-# TF-IDF on messages
-tfidf = TfidfVectorizer(ngram_range=(1, 2), max_features=5000)
-X_tfidf = tfidf.fit_transform(X_text)
-
-# Combine
-import scipy.sparse as sp
-X = sp.hstack([X_tfidf, X_num])
-
-# Handle class imbalance
-sm = SMOTE(random_state=42)
-X_res, y_res = sm.fit_resample(X, y)
-
-# Split
-X_train, X_test, y_train, y_test = train_test_split(
-    X_res, y_res, test_size=0.2, random_state=42)
-
-# Train
-clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
-clf.fit(X_train, y_train)
-
-# Evaluate
-y_pred = clf.predict(X_test)
-print(classification_report(y_test, y_pred))
-print(f"Macro F1: {f1_score(y_test, y_pred, average='macro'):.3f}")
-
-# Save both vectorizer + model
-joblib.dump({"tfidf": tfidf, "clf": clf}, "ml_training/commit_classifier.pkl")
-print("✓ Model saved to ml_training/commit_classifier.pkl")
-```
-
----
-
-## 6. Frontend UI Stack
-
-### Design Direction
-**Terminal-meets-modern.** Dark background (#0a0a0a), monospace accents for code/SHA values, neon green (#00ff88) for healthy/passing states, red (#ff4444) for breaking changes, amber (#ffaa00) for warnings. Clean card grid with subtle glass morphism. Feels like a developer tool, not a generic SaaS.
-
-### Key Animations
+### 5.8 Key Frontend Components
 
 ```tsx
-// ReindexButton.tsx — Manual re-index with live progress
+// ActionCard.tsx — Shows what Orbiter did + why (expandable)
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { RefreshCw } from "lucide-react"
+import { ChevronDown, Bot } from "lucide-react"
 
-export function ReindexButton({ repoId, onComplete }) {
-  const [status, setStatus] = useState<"idle"|"indexing"|"done"|"error">("idle")
-  const [progress, setProgress] = useState({ files: 0, current: "" })
+export function ActionCard({ action }) {
+  const [expanded, setExpanded] = useState(false)
 
-  const handleReindex = async () => {
-    setStatus("indexing")
-    setProgress({ files: 0, current: "Starting..." })
-
-    // Trigger backend reindex
-    await fetch(`/api/v1/repos/${repoId}/reindex`, { method: "POST" })
-
-    // Progress comes via WebSocket — handled by ActivityFeed
-    // Listen for reindex_complete event
-    const handler = (event) => {
-      if (event.type === "reindex_progress") {
-        setProgress({ files: event.files_done, current: event.current_file })
-      }
-      if (event.type === "reindex_complete") {
-        setStatus("done")
-        onComplete?.()
-        setTimeout(() => setStatus("idle"), 3000)
-      }
-      if (event.type === "reindex_error") {
-        setStatus("error")
-        setTimeout(() => setStatus("idle"), 3000)
-      }
-    }
-    window.addEventListener("repomind_ws_event", handler)
-    return () => window.removeEventListener("repomind_ws_event", handler)
+  const typeColors = {
+    issue_triage:     "border-blue-500/30 bg-blue-500/5",
+    contributor_help: "border-green-500/30 bg-green-500/5",
+    commit_analysis:  "border-purple-500/30 bg-purple-500/5",
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <motion.button
-        onClick={handleReindex}
-        disabled={status === "indexing"}
-        whileTap={{ scale: 0.97 }}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm
-          border transition-all ${
-            status === "idle"     ? "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200" :
-            status === "indexing" ? "border-amber-500/50 text-amber-400 cursor-not-allowed" :
-            status === "done"     ? "border-green-500/50 text-green-400" :
-                                    "border-red-500/50 text-red-400"
-          }`}
-      >
-        <motion.div
-          animate={status === "indexing" ? { rotate: 360 } : { rotate: 0 }}
-          transition={{ duration: 1, repeat: status === "indexing" ? Infinity : 0, ease: "linear" }}
-        >
-          <RefreshCw size={14} />
-        </motion.div>
-        {status === "idle"     && "Re-index codebase"}
-        {status === "indexing" && "Indexing..."}
-        {status === "done"     && "✓ Complete"}
-        {status === "error"    && "Failed — retry"}
-      </motion.button>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`rounded-xl border p-4 ${typeColors[action.event_type] || "border-zinc-800"}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Bot size={14} className="text-zinc-400 shrink-0 mt-0.5" />
+          <div>
+            <span className="text-zinc-200 text-sm font-medium">
+              {formatActionTitle(action)}
+            </span>
+            <div className="flex gap-1.5 mt-1 flex-wrap">
+              {action.actions_taken?.map((a, i) => (
+                <span key={i} className="text-xs bg-zinc-800 text-zinc-400
+                                         rounded px-1.5 py-0.5 font-mono">
+                  {a.type}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <button onClick={() => setExpanded(!expanded)}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors">
+          <motion.div animate={{ rotate: expanded ? 180 : 0 }}>
+            <ChevronDown size={14} />
+          </motion.div>
+        </button>
+      </div>
 
       <AnimatePresence>
-        {status === "indexing" && (
+        {expanded && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="text-xs font-mono text-zinc-500"
+            className="mt-3 pt-3 border-t border-zinc-800"
           >
-            <span className="text-amber-400">{progress.files}</span> files indexed
-            <span className="block truncate text-zinc-600">{progress.current}</span>
+            <p className="text-xs text-zinc-500 font-mono leading-relaxed">
+              {action.reasoning}
+            </p>
+            {action.ml_classification && (
+              <div className="mt-2 flex gap-2 text-xs">
+                <span className="text-zinc-600">ML:</span>
+                <span className="text-zinc-400 font-mono">
+                  {action.ml_classification.type}
+                  ({(action.ml_classification.confidence * 100).toFixed(0)}%)
+                </span>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  )
-}
-```
-
-```tsx
-// CommitCard.tsx — Framer Motion stagger
-import { motion } from "framer-motion"
-
-export function CommitCard({ commit, index }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05, duration: 0.3 }}
-      className="bg-zinc-900 border border-zinc-800 rounded-xl p-4
-                 hover:border-zinc-600 transition-colors"
-    >
-      <div className="flex items-center gap-3">
-        <TypeBadge type={commit.commit_type} />
-        <code className="text-zinc-400 text-xs font-mono">
-          {commit.sha.slice(0, 7)}
-        </code>
-        {commit.is_breaking && (
-          <span className="text-xs bg-red-500/20 text-red-400
-                           border border-red-500/30 rounded px-2 py-0.5">
-            ⚠ BREAKING
-          </span>
-        )}
-      </div>
-      <p className="text-zinc-200 text-sm mt-2">{commit.message}</p>
-      <p className="text-zinc-500 text-xs mt-1">
-        Confidence: {(commit.confidence * 100).toFixed(0)}%
-      </p>
     </motion.div>
   )
 }
 
-// RepoHealthScore.tsx — GSAP radial animation
-import { useEffect, useRef } from "react"
-import { gsap } from "gsap"
-
-export function HealthScore({ score }) {
-  const circleRef = useRef(null)
-  const circumference = 2 * Math.PI * 45
-
-  useEffect(() => {
-    gsap.to(circleRef.current, {
-      strokeDashoffset: circumference - (score / 100) * circumference,
-      duration: 1.5,
-      ease: "power2.out"
-    })
-  }, [score])
-
-  return (
-    <svg width="120" height="120" viewBox="0 0 120 120">
-      <circle cx="60" cy="60" r="45" fill="none"
-              stroke="#27272a" strokeWidth="8"/>
-      <circle ref={circleRef} cx="60" cy="60" r="45" fill="none"
-              stroke="#00ff88" strokeWidth="8"
-              strokeDasharray={circumference}
-              strokeDashoffset={circumference}
-              strokeLinecap="round"
-              transform="rotate(-90 60 60)"/>
-      <text x="60" y="65" textAnchor="middle"
-            fill="#fff" fontSize="20" fontWeight="bold">
-        {score}
-      </text>
-    </svg>
-  )
+function formatActionTitle(action) {
+  if (action.event_type === "issue_triage")
+    return `Triaged Issue #${action.target_number}`
+  if (action.event_type === "contributor_help")
+    return `Answered Question #${action.target_number}`
+  if (action.event_type === "commit_analysis")
+    return `Analyzed Commit`
+  return "AI Action"
 }
+```
 
-// ActivityFeed.tsx — Live WebSocket
-import { useEffect, useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+---
 
-export function ActivityFeed() {
-  const [events, setEvents] = useState([])
+## 6. GitHub App Setup (Step-by-Step)
 
-  useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    const ws = new WebSocket(
-      `${process.env.NEXT_PUBLIC_WS_URL}/api/v1/ws/feed?token=${token}`)
+```
+1. Go to github.com/settings/apps/new
 
-    ws.onmessage = (e) => {
-      const event = JSON.parse(e.data)
-      setEvents(prev => [event, ...prev].slice(0, 50))
-    }
-    return () => ws.close()
-  }, [])
+2. Fill in:
+   Name: Orbiter
+   Homepage: https://orbiter.is-a.dev
+   Webhook URL: https://your-app.koyeb.app/webhooks/github
+   Webhook secret: generate a random 32-char string
+                   → save as GITHUB_WEBHOOK_SECRET
 
-  return (
-    <div className="space-y-2">
-      <AnimatePresence>
-        {events.map((event, i) => (
-          <motion.div key={event.id}
-            initial={{ opacity: 0, x: -20, height: 0 }}
-            animate={{ opacity: 1, x: 0, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="text-sm text-zinc-400 font-mono border-l-2
-                       border-green-500/50 pl-3 py-1"
-          >
-            <span className="text-green-400">▶</span> {event.message}
-          </motion.div>
-        ))}
-      </AnimatePresence>
-    </div>
-  )
-}
+3. Permissions (Repository):
+   Issues: Read & Write
+   Pull requests: Read & Write
+   Contents: Read-only
+   Metadata: Read-only
+
+4. Subscribe to events:
+   ✅ Issues
+   ✅ Pull request
+   ✅ Push
+   ✅ Release
+
+5. Create GitHub App → note the App ID → save as GITHUB_APP_ID
+
+6. Generate private key → download .pem file
+   → copy contents → save as GITHUB_APP_PRIVATE_KEY
+   → in Koyeb: replace newlines with \n
+
+7. Deploy backend to Koyeb first
+   Then come back and set the webhook URL
+
+8. Install app on a test repo to verify webhooks fire
+   → Check Koyeb logs for incoming webhook events
 ```
 
 ---
@@ -965,141 +782,103 @@ export function ActivityFeed() {
 ## 7. Deployment
 
 ### Backend → Koyeb
-```bash
-# Dockerfile
+```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
 
-# Koyeb settings:
-# Build: Docker
-# Port: 8000
-# Persistent disk: /app/chroma_db (1GB — for ChromaDB)
-# Add all env vars in Koyeb dashboard
+```
+Koyeb settings:
+  Build: Dockerfile
+  Port: 8000
+  Persistent disk: /app/chroma_db (1GB)
+  
+  Environment variables: (all from .env.example)
 ```
 
 ### Frontend → Vercel
 ```bash
-cd frontend
-npx vercel --prod
-# Add env vars in Vercel dashboard:
+cd frontend && npx vercel --prod
+# Add in Vercel dashboard:
 # NEXT_PUBLIC_API_URL=https://your-app.koyeb.app
 # NEXT_PUBLIC_WS_URL=wss://your-app.koyeb.app
 # NEXT_PUBLIC_SUPABASE_URL=
 # NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
-### GitHub Actions (`.github/workflows/deploy.yml`)
-```yaml
-name: CI/CD
-on:
-  push:
-    branches: [main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with: { python-version: '3.11' }
-      - run: pip install -r backend/requirements.txt
-      - run: cd backend && python -m pytest tests/ -v --tb=short
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Redeploy Koyeb
-        run: |
-          curl -X POST \
-          -H "Authorization: Bearer ${{ secrets.KOYEB_API_KEY }}" \
-          https://app.koyeb.com/v1/services/${{ secrets.KOYEB_SERVICE_ID }}/redeploy
-```
-
 ---
 
 ## 8. Build Checklist — Week by Week
 
-### Week 1 — ML Model + Backend Foundation
+### Week 1 — ML + Backend Core
 ```
-□ Collect GitHub commits dataset (GitHub Archive or manual scraping)
-□ Train commit classifier — get to 85%+ accuracy
-□ FastAPI skeleton + all routes stubbed
-□ Supabase schema applied
-□ GitHub API integration working (PAT configured)
-□ ChromaDB indexer working on a test repo
-□ /health endpoint deployed to Koyeb
+□ Train unified classifier (commits + issues) → 85%+ accuracy
+□ FastAPI app skeleton + all routes stubbed
+□ Supabase schema applied (all tables)
+□ ChromaDB indexer working on test repo
+□ /health endpoint live on Koyeb
 □ UptimeRobot pinging /health every 5 mins
 ```
 
-### Week 2 — Agent + Monitoring
+### Week 2 — GitHub App + Webhooks
 ```
-□ All 5 LangChain tools working individually (test each in isolation)
-□ ReAct agent running end-to-end on a real commit
-□ APScheduler polling working (verify it runs when browser is closed)
-□ WebSocket endpoint pushing events
-□ Manual reindex endpoint working
-□ Email digest sending via Resend
-□ Full pipeline: repo added → indexed → commit detected → analyzed → saved
+□ GitHub App registered with correct permissions
+□ HMAC webhook verification working
+□ Webhook handler ACKs immediately, processes in background
+□ Idempotency check (no double-processing)
+□ Event router dispatching correctly by event type
+□ Installation token caching in Redis working
+□ Test: open issue on repo → see webhook hit in Koyeb logs
 ```
 
-### Week 3 — Frontend
+### Week 3 — Issue Triage + Contributor Help
 ```
-□ middleware.ts protecting ALL routes except / and /login
-□ Google OAuth login via Supabase working
-□ Landing page with GSAP scroll animations
-□ Dashboard — repo cards, add repo flow
-□ Repo detail page — commit feed with ML badges
+□ Issue classification via ML model
+□ Duplicate detection via ChromaDB search
+□ Owner suggestion via git blame
+□ Labels applied to real GitHub issues
+□ Comment posted on real GitHub issues
+□ Contributor help RAG working (docs + issues + code)
+□ Answer posted on question-type issues
+□ Docs gap detection creating new issues
+□ WebSocket pushing events to frontend
+```
+
+### Week 4 — Frontend Dashboard
+```
+□ middleware.ts auth guard (test: /dashboard without login → /login instantly)
+□ Google OAuth login
+□ Dashboard with repo cards + health scores
+□ Repo detail page: commit timeline + issue triage log
+□ ActionCard with expandable reasoning
 □ Live activity feed (WebSocket)
 □ ReindexButton with progress animation
-□ Health score with GSAP radial animation
+□ GSAP health score animation
 □ Mobile responsive
-□ Test: visit /dashboard without login → should redirect to /login instantly
 ```
 
-### Week 4 — Polish + Deploy
+### Week 5 — Polish + Launch
 ```
-□ Error handling and loading skeleton screens everywhere
-□ README with architecture diagram + demo GIF
-□ ML model accuracy metrics documented in README
-□ Custom domain via is-a.dev
-□ GitHub Actions CI/CD pipeline active
-□ Demo recorded pointing at a real OSS repo (fastapi/fastapi is perfect)
-□ Record 2-min demo video for portfolio/resume
+□ Error handling + loading skeletons everywhere
+□ README: architecture diagram + demo GIF + ML accuracy metrics
+□ GitHub App listed publicly (anyone can install)
+□ Demo: install on fastapi/fastapi or a real OSS repo you contribute to
+□ Record 2-min demo video showing: issue opened → Orbiter labels + comments in <15s
+□ Deploy custom domain via is-a.dev
+□ GitHub Actions CI/CD active
 ```
 
 ---
 
-## 9. Ideas to Make It More Interesting
+## 9. Interview Answer
 
-These additions take 1–3 days each and significantly raise the impressiveness level:
-
-**Commit Risk Score** — beyond just type classification, calculate a 0-100 risk score per commit based on: files changed (core files = high risk), lines deleted (big deletions = risky), test coverage change (less tests = red flag), time since last change to that file (rarely touched file being modified = risk). Display as a color-coded number on each commit card. Something no other tool does.
-
-**Bus Factor Analyzer** — scan all commits and calculate which files are only ever touched by one person. Flag these as "bus factor risk" — if that person leaves, the codebase suffers. Visual heatmap showing file → contributor concentration. Genuinely useful, genuinely novel.
-
-**Commit Velocity Anomaly Detection** — use a simple moving average to detect when commit frequency spikes or drops abnormally. "This repo usually gets 3 commits/day — today it got 47. Possible crunch or incident." Flag it on the dashboard. Uses basic ML (z-score anomaly detection) which is another ML talking point.
-
-**"What broke this?" Natural Language Search** — text box on the repo page: "When was the auth module last touched?" or "Find the commit that added rate limiting." Uses your existing RAG over commit history. One endpoint, huge demo value.
-
-**Contributor Insights Panel** — per-contributor breakdown: what % of their commits are bug fixes vs features, average confidence score of their commits, most touched files. Feels like a developer analytics product.
-
-**GitHub Trending Monitor** — special mode where instead of monitoring your own repos, you monitor GitHub trending daily. Agent analyzes what's trending in your tech stack and sends a daily "what's new in Python/AI world" digest. Completely different use case, same codebase.
-
-**Start with Commit Risk Score first** — it's 2 days of work, adds a real ML component (weighted scoring), and looks stunning on the UI with a colored badge on every commit.
+> "I built Orbiter, an autonomous AI maintainer for GitHub repos. It installs as a GitHub App and receives real-time webhook events. When an issue is opened, a trained scikit-learn classifier determines if it's a bug, feature request, question, or duplicate — in under 10ms, locally, no API call. Then a LangChain ReAct agent searches a ChromaDB vector store of the codebase and past issues to understand context, suggests an owner using git blame analysis, and posts a contextual GitHub comment with appropriate labels — all within 15 seconds of the issue being opened. For contributor questions, it uses RAG over the repo docs and past resolved issues to synthesize an answer and post it directly. The whole system runs on Koyeb with FastAPI, APScheduler for background monitoring, and Supabase for persistence — deployed entirely for free."
 
 ---
 
-## 10. Interview Talking Points
-
-When asked "tell me about your project" — say this:
-
-> "I built RepoMind, an autonomous AI agent that monitors GitHub repositories. It has four distinct AI layers: a scikit-learn classifier trained on 50k GitHub commits that categorizes changes with 88% accuracy; sentence-transformer embeddings that index the entire codebase for semantic search; a RAG pipeline that lets the agent understand the context of any change; and a LangChain ReAct agent with custom tools that autonomously decides whether to post GitHub comments or trigger alerts. The backend is FastAPI with APScheduler for background monitoring — it runs 24/7 on Koyeb regardless of whether the user has the app open. Everything is deployed free using Koyeb, Vercel, and Supabase."
-
-That answer covers ML, embeddings, RAG, agents, backend, deployment, and system design — every keyword an AI/ML interviewer wants to hear.
-
----
-
-*MVP Tech Doc v2.0 — RepoMind | Est. build time: 4 weeks*
+*MVP Tech Doc v1.0 — Orbiter | Est. build time: 5 weeks*
