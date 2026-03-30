@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from core.ml.classifier import load_classifier
+from api.v1.webhooks import router as webhooks_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -13,6 +14,9 @@ async def lifespan(app: FastAPI):
     print("Shutting down gracefully.")
 
 app = FastAPI(title="RepoMind API", version="1.0.0", lifespan=lifespan)
+
+# Mount the webhooks router (available at /webhooks/github)
+app.include_router(webhooks_router)
 
 # Allow CORS for your frontend
 app.add_middleware(
