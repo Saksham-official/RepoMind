@@ -1,50 +1,62 @@
 # Environment and DevOps
 
-## deployed Infrastructure Overview
-RepoMind utilizes 100% free-tier cloud tooling, keeping operational overhead at $0 while matching production-ready infrastructure best practices.
+Orbiter utilizes 100% free-tier cloud tooling, keeping operational overhead at $0 while demonstrating a production-ready, fault-tolerant infrastructure design.
 
-1. **Backend / API Engine (Koyeb)**
-   - Deploys the monolithic Dockerized FastAPI + Uvicorn server (`python:3.11-slim`).
-   - Attached 1GB persistent disk mapped exclusively for the ChromaDB vector collections (`/app/chroma_db`).
-   - Automatically restarts logic handled natively. Continuous background execution via APScheduler does not pause, fulfilling the "always on" requirements.
+## Deployed Infrastructure
+
+1. **Backend & AI Engine (Koyeb)**
+   - Deploys the Fast API + Uvicorn server (`python:3.11-slim`).
+   - Handles real-time webhooks, ML inference, LangChain agent pipelines, and APScheduler routines.
+   - Attached **1GB persistent disk** exclusively mapped for ChromaDB vectors (`/app/chroma_db`).
+   - Ensures continuous uptime / "never sleeps".
 
 2. **Frontend UI (Vercel)**
-   - Connects to the GitHub repository to trigger automatic branch-based deployments.
-   - Leverages Vercel edge network for `middleware.ts` execution (Next.js Edge Runtime), allowing zero-latency authentication routing checks entirely server-side.
+   - Next.js 14 App Router deployment.
+   - Vercel Edge network powers `middleware.ts` execution, yielding zero-latency authentication checks completely isolated from the main servers.
 
 3. **Database & Auth (Supabase)**
-   - Serves as the primary Postgres datastore for all structural relational abstractions.
-   - Built-in `auth.users` integrations handling secure JWT generation for the backend and WebSocket validations.
+   - Primary PostgreSQL datastore for schema components (actions, repos, events).
+   - Identity Provider via Supabase Auth (Google OAuth + Email magic links).
 
 4. **Cache & Rate Limiting (Upstash Redis)**
-   - Protects the FastAPI instance from abusive request volumes natively caching commonly repeated requests (e.g. ML classification of "fix: typo").
+   - Protects GitHub App Installation constraints.
+   - Generates and securely caches GitHub installation scoped application tokens (TTL: 55 min) to optimize throughput.
 
-## Environment Variables Configuration
-The raw values are mapped exclusively to the vendor dashboards (Koyeb & Vercel) and never committed to source control.
+5. **Email Delivery (Resend)**
+   - Free tier usage for sending daily health digests.
+
+## Environment Config
+Never committed to source control. Configured on Koyeb and Vercel individually.
 
 ```env
-# Primary external auth
-GEMINI_API_KEY=********
-GROQ_API_KEY=********
-GITHUB_TOKEN=********
+# GitHub App Authentication
+GITHUB_APP_ID=
+GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
+GITHUB_WEBHOOK_SECRET=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
 
-# Vendor DB logic
-SUPABASE_URL=********
-SUPABASE_ANON_KEY=********
-SUPABASE_SERVICE_KEY=********
-UPSTASH_REDIS_URL=********
-UPSTASH_REDIS_TOKEN=********
-RESEND_API_KEY=********
+# LLM Providers
+GEMINI_API_KEY=
+GROQ_API_KEY=
 
-# Project Config
-JWT_SECRET_KEY=********
-FRONTEND_URL=https://your-app.vercel.app
+# Vendor Integrations
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_KEY=
+UPSTASH_REDIS_URL=
+UPSTASH_REDIS_TOKEN=
+RESEND_API_KEY=
+
+# Project Setup
+JWT_SECRET_KEY=
+FRONTEND_URL=https://orbiter.vercel.app
 CHROMA_PERSIST_DIR=/app/chroma_db
 ENVIRONMENT=production
 ```
 
-## Continuous Integration / Continuous Deployment (CI/CD)
-The monolithic repository contains a GitHub Actions workflow `.github/workflows/deploy.yml` that performs validation pipelines upon pushing to `main`.
-1. Provisions Python 3.11 instance on Ubuntu runner.
-2. Installs requirements via `pip` and executes tests using `pytest tests/ -v`.
-3. If build/test matrix passes, uses Koyeb generic REST webhooks via `curl -X POST` to execute the redeployment signal to update the backend instance automatically.
+## Setup via GitHub Settings
+Installing Orbiter requires:
+1. Registering the app at `github.com/settings/apps/new`.
+2. Setting the webhook endpoint to `https://your-app.koyeb.app/webhooks/github`.
+3. Validating required scopes on `issues`, `pull_requests`, `contents`, `commits`.
