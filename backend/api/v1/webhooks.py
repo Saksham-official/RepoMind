@@ -9,6 +9,7 @@ router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 # GITHUB_WEBHOOK_SECRET should be set in your environment variables.
 # It MUST match the webhook secret you configure in the GitHub App settings.
 GITHUB_WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "default_secret")
+print(f"[DEBUG] Webhook Secret loaded: {'Yes' if GITHUB_WEBHOOK_SECRET != 'default_secret' else 'No (using default)'} | Length: {len(GITHUB_WEBHOOK_SECRET)}")
 
 # Simple in-memory cache for idempotency.
 # In a production environment, this should ideally be moved to Upstash Redis as per your architecture docs.
@@ -46,6 +47,32 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
                 # Actually add the labels
                 if decision.get("labels_to_add"):
                     github_add_labels(installation_id, repo_full_name, issue_number, decision["labels_to_add"])
+
+                # 3. Log to DB and Broadcast to Frontend Dashboard
+                from core.database import log_ai_action
+                from core.sockets import manager
+                import asyncio
+
+                repo_id = str(payload.get("repository", {}).get("id"))
+                log_ai_action(repo_id, issue_number, decision.get("action_taken", "triage"), decision.get("comment", ""))
+                
+                # Broadscast to all connected Dashboard clients
+                from datetime import datetime
+                
+                # Map internal action type to frontend WSEvent types
+                ws_type = "issue_triaged"
+                if decision.get("predicted_type") == "question":
+                   ws_type = "question_answered"
+
+                await manager.broadcast({
+                    "id": str(delivery_id),
+                    "type": ws_type,
+                    "repo": repo_full_name,
+                    "issue_number": issue_number,
+                    "classification": decision.get("predicted_type", "triage"),
+                    "message": decision.get("comment", "")[:100] + "...",
+                    "timestamp": datetime.now().isoformat()
+                })
             else:
                 print("⚠ WARNING: No 'installation.id' in payload. Cannot authenticate GitHub API requests.")
 
@@ -102,6 +129,8 @@ async def github_webhook(
     
     # 3. HMAC-SHA256 Verification
     # GitHub's signature comes as: sha256=abcdef123...
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "default_secret")
+    
     if not x_hub_signature_256.startswith("sha256="):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
@@ -111,7 +140,7 @@ async def github_webhook(
     signature = x_hub_signature_256.split("=")[1]
     
     # Generate HMAC using the secret and the raw body
-    mac = hmac.new(GITHUB_WEBHOOK_SECRET.encode(), msg=body, digestmod=hashlib.sha256)
+    mac = hmac.new(secret.encode(), msg=body, digestmod=hashlib.sha256)
     expected_signature = mac.hexdigest()
     
     # Use hmac.compare_digest to prevent time-based attacks
