@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Build
+.next
+out
+dist
+build
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+venv/
+env/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Database / Models
+chroma_db/
+*.pkl
+__pycache__/
+*.pyc
+*.pyo
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
