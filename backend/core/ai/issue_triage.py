@@ -57,6 +57,7 @@ def triage_issue(issue_event_payload: dict) -> dict:
 
     return {
         "action_taken": "triage_and_label",
+        "predicted_type": predicted_type,
         "comment": comment,
         "labels_to_add": labels_to_add
     }
