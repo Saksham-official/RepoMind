@@ -7,3 +7,13 @@ imbalanced-learn
 joblib
 numpy
 scipy
+PyGithub
+PyJWT
+cryptography
+redis
+langchain
+langchain-groq
+langchain-huggingface
+chromadb
+supabase
+apscheduler
