@@ -69,11 +69,16 @@ def analyze_push_event(push_payload: dict):
         
         try:
             loop = asyncio.get_running_loop()
+            import datetime
             # We schedule the broadcast to run so it doesn't block local Python execution
             loop.create_task(manager.broadcast({
                 "type": "commit_analyzed",
                 "repo": repo_full_name,
-                "data": result
+                "sha": result["sha"],
+                "message": result["message"],
+                "classification": result["ml_prediction"],
+                "confidence": result["confidence"],
+                "timestamp": datetime.datetime.now().isoformat()
             }))
             print(f"  → 📡 Broadcasted {result['sha']} to Dashboard Sockets")
         except RuntimeError:
