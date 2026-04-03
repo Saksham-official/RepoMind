@@ -1,22 +1,36 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 from core.ml.classifier import load_classifier
 from api.v1.webhooks import router as webhooks_router
+from api.v1.websockets import router as websockets_router
+from api.v1.repos import router as repos_router
+from core.scheduler import start_scheduler, stop_scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # This runs exactly once when the server boots up
     print("Booting up RepoMind Backend...")
     load_classifier()
+    start_scheduler()
     yield
     # This runs when shutting down
+    stop_scheduler()
     print("Shutting down gracefully.")
 
 app = FastAPI(title="RepoMind API", version="1.0.0", lifespan=lifespan)
 
 # Mount the webhooks router (available at /webhooks/github)
 app.include_router(webhooks_router)
+
+# Mount Routers
+app.include_router(websockets_router, prefix="/api/v1")
+app.include_router(repos_router, prefix="/api/v1")
 
 # Allow CORS for your frontend
 app.add_middleware(
