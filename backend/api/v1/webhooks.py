@@ -33,37 +33,33 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
             decision = triage_issue(payload)
             print(f"[BACKGROUND] Triage engine returned: {decision}")
             
-            # 2. Execute GitHub API writes (Labels, Comments)
+            # 2. Extract context
             installation_id = payload.get("installation", {}).get("id")
-            if installation_id:
-                from core.github_client import github_post_comment, github_add_labels
-                repo_full_name = payload["repository"]["full_name"]
-                issue_number = payload["issue"]["number"]
-                
-                # Actually post the comment
-                if decision.get("comment"):
-                    github_post_comment(installation_id, repo_full_name, issue_number, decision["comment"])
-                    
-                # Actually add the labels
-                if decision.get("labels_to_add"):
-                    github_add_labels(installation_id, repo_full_name, issue_number, decision["labels_to_add"])
+            issue_number = payload["issue"]["number"]
+            repo_full_name = payload["repository"]["full_name"]
+            repo_id = str(payload.get("repository", {}).get("id"))
 
+            if installation_id:
                 # 3. Log to DB and Broadcast to Frontend Dashboard
-                from core.database import log_ai_action
+                from core.database import log_ai_action, save_repository
                 from core.sockets import manager
                 import asyncio
+                from datetime import datetime
 
-                repo_id = str(payload.get("repository", {}).get("id"))
+                print(f"[BACKGROUND] Auto-onboarding repo: {repo_full_name}")
+                save_repository(repo_id, repo_full_name, installation_id)
+                
+                # Small delay to allow Supabase to index
+                await asyncio.sleep(1.5)
+                
+                print(f"[BACKGROUND] Logging action to Supabase...")
                 log_ai_action(repo_id, issue_number, decision.get("action_taken", "triage"), decision.get("comment", ""))
                 
-                # Broadscast to all connected Dashboard clients
-                from datetime import datetime
-                
-                # Map internal action type to frontend WSEvent types
                 ws_type = "issue_triaged"
                 if decision.get("predicted_type") == "question":
                    ws_type = "question_answered"
 
+                print(f"[BACKGROUND] Broadcasting {ws_type} to dashboard...")
                 await manager.broadcast({
                     "id": str(delivery_id),
                     "type": ws_type,
@@ -73,6 +69,22 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
                     "message": decision.get("comment", "")[:100] + "...",
                     "timestamp": datetime.now().isoformat()
                 })
+                
+                await manager.broadcast({
+                    "type": "repo_discovered",
+                    "repo": repo_full_name,
+                    "timestamp": datetime.now().isoformat()
+                })
+
+                # 4. GitHub API writes (Labels, Comments) - Moved to end and made optional
+                try:
+                    from core.github_client import github_post_comment, github_add_labels
+                    if decision.get("comment"):
+                        github_post_comment(installation_id, repo_full_name, issue_number, decision["comment"])
+                    if decision.get("labels_to_add"):
+                        github_add_labels(installation_id, repo_full_name, issue_number, decision["labels_to_add"])
+                except Exception as gh_e:
+                    print(f"  → [GITHUB_API] Skipped/Failed: {gh_e} (Expected in local dev without real tokens)")
             else:
                 print("⚠ WARNING: No 'installation.id' in payload. Cannot authenticate GitHub API requests.")
 
@@ -117,6 +129,7 @@ async def github_webhook(
     x_hub_signature_256: str = Header(None, alias="X-Hub-Signature-256"),
     x_github_delivery: str = Header(None, alias="X-GitHub-Delivery")
 ):
+    print(f"[DEBUG] Received webhook: {x_github_event} | Delivery: {x_github_delivery}")
     # 1. Require strict presence of headers
     if not x_github_event or not x_hub_signature_256 or not x_github_delivery:
         raise HTTPException(
