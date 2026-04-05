@@ -1,10 +1,10 @@
 import os
 
-# Try to import Langchain components, handling cases where they might not be installed yet during dev.
+# Try to import Langchain components
 try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
     from langchain_huggingface import HuggingFaceEmbeddings
-    from langchain_groq import ChatGroq
-    from langchain.vectorstores import Chroma
+    from langchain_community.vectorstores import Chroma
     from langchain.chains import RetrievalQA
 except ImportError:
     pass
@@ -13,33 +13,37 @@ CHROMA_PERSIST_DIR = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
 
 def synthesize_answer(repo_full_name: str, question: str) -> str:
     """
-    RAG Implementation for the Contributor Helper.
-    Searches ChromaDB for relevant documentation and past issues,
-    then uses an LLM to synthesize an answer.
+    RAG Implementation using Gemini API.
+    Searches ChromaDB for relevant documentation and uses Gemini to synthesize the answer.
     """
-    if not os.environ.get("GROQ_API_KEY"):
-        print("⚠ WARNING: GROQ_API_KEY not set. Returning stub RAG answer.")
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        print("⚠ WARNING: GOOGLE_API_KEY not set. Returning stub RAG answer.")
         return ("*I am Orbiter, your AI maintainer. I've classified this as a question!* "
-                "\n\n(Stub Mode: Please configure a GROQ API key in your environment to see actual RAG responses based on your repository's docs and closed issues).")
+                "\n\n(Stub Mode: Please configure a GOOGLE_API_KEY in your environment to see actual Gemini-powered responses).")
     
     try:
         # 1. Initialize Embeddings and Vector DB (Chroma)
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         
-        # Connect to ChromaDB. We assume an ingestion pipeline has already populated this.
         vectorstore = Chroma(
             persist_directory=CHROMA_PERSIST_DIR, 
             embedding_function=embeddings,
-            collection_name="repo_docs" # Default collection as per design
+            collection_name="repo_docs"
         )
         
-        # 2. Setup the Retriever. We filter by repo to ensure data boundary isolation.
+        # 2. Setup the Retriever
         retriever = vectorstore.as_retriever(
-            search_kwargs={"k": 3, "filter": {"repo": repo_full_name}}
+            search_kwargs={"k": 5, "filter": {"repo": repo_full_name}}
         )
 
-        # 3. Setup the Language Model
-        llm = ChatGroq(temperature=0.2, model_name="llama-3.1-70b-versatile")
+        # 3. Setup Gemini LLM
+        # Using Gemini 1.5 Flash for speed and efficiency in dev.
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            temperature=0.3,
+            google_api_key=api_key
+        )
         
         # 4. Create the Retrieval Chain
         qa_chain = RetrievalQA.from_chain_type(
@@ -49,13 +53,13 @@ def synthesize_answer(repo_full_name: str, question: str) -> str:
             return_source_documents=True
         )
         
-        # 5. Execute RAG
-        print(f"[RAG] Executing search for repo {repo_full_name} | Query: {question[:50]}...")
+        # 5. Execute Gemini RAG
+        print(f"[GEMINI_RAG] Querying for repo {repo_full_name}...")
         result = qa_chain({"query": question})
         answer = result["result"]
         
-        return f"{answer}\n\n*— Answer synthesized by Orbiter using RAG from your repository docs.*"
+        return f"{answer}\n\n*— Answer synthesized by Orbiter using Gemini 1.5 Flash.*"
 
     except Exception as e:
-        print(f"[RAG] Error during execution: {e}")
-        return "I encountered an error trying to search the documentation for your answer. I notify the human maintainers to step in!"
+        print(f"[GEMINI_RAG] Error during execution: {e}")
+        return "I encountered an error trying to search the documentation with Gemini. I notify the human maintainers to step in!"
