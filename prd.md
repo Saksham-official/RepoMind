@@ -104,6 +104,20 @@ On `pull_request.opened`: embed PR description + diff summary, search against ex
 **Auto-close Stale Issues**
 Issues with no activity in 60 days: Orbiter posts a "is this still relevant?" comment, adds `stale` label. If no response in 7 days: closes with explanation.
 
+### Phase 3 (Advanced Unique Features)
+
+**"Self-Healing" Documentation**
+If Orbiter answers the exact same question in 3 different issues via RAG, it automatically generates a PR to update `README.md` or `FAQ.md` with the new information.
+
+**Toxicity & Maintainer Burnout Detection**
+Analyze issue comments for aggressive sentiment or maintainer fatigue. Send private dashboard alerts to core maintainers to protect community health.
+
+**"Blast Radius" PR Prediction**
+Cross-reference new PRs against all currently open PRs to warn reviewers of potential severe merge conflicts if core files are heavily modified simultaneously.
+
+**Contributor "Expertise" Mapping**
+Use `git blame` and ChromaDB to assign new bugs/features to community members who specifically authored those modules, building contributor engagement.
+
 ---
 
 ## 6. ML Model
