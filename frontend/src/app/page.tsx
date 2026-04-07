@@ -15,6 +15,14 @@ import {
   MessageSquare,
   Tag,
   Search,
+  Layers,
+  Cpu,
+  Database,
+  Cloud,
+  Lock,
+  ExternalLink,
+  ChevronRight,
+  Code2,
 } from "lucide-react";
 import TerminalLoader from "@/components/TerminalLoader";
 
@@ -56,6 +64,56 @@ const stats = [
   { value: "88%+", label: "ML Accuracy" },
   { value: "24/7", label: "Always On" },
   { value: "₹0", label: "Cost" },
+  { value: "1,200+", label: "RAG_Search_Engine Files" },
+];
+
+const capabilities = [
+  {
+    title: "Semantic Triage",
+    desc: "Understand intent beyond keywords. Orbiter reads issues like a human, identifying duplicates and relevant labels across thousands of entries.",
+    features: ["Duplicate Clustering", "Automated Labeling", "Contributor Routing"],
+    icon: Brain,
+  },
+  {
+    title: "RAG-Powered Support",
+    desc: "Maintainers shouldn't repeat themselves. Orbiter searches your docs and past issues to answer contributor questions instantly.",
+    features: ["Context-Aware Answers", "Direct File Citations", "Issue History Search"],
+    icon: Search,
+  },
+  {
+    title: "Automated PR Guard",
+    desc: "Catch breaking changes and security flaws before they hit main. Orbiter provides early feedback to contributors.",
+    features: ["Inline Code Comments", "Security Flagging", "Semantic Analysis"],
+    icon: Shield,
+  },
+];
+
+const techStack = [
+  { name: "FastAPI", role: "Backend API", icon: Zap },
+  { name: "Next.js", role: "Frontend UI", icon: Layers },
+  { name: "LangChain", role: "AI Orchestration", icon: Cpu },
+  { name: "ChromaDB", role: "Vector Store", icon: Database },
+  { name: "PostgreSQL", role: "Structured Data", icon: Database },
+  { name: "GitHub Apps", role: "Integration", icon: GitFork },
+];
+
+const faqs = [
+  {
+    q: "How secure is Orbiter?",
+    a: "Orbiter uses HMAC-SHA256 signatures to verify every webhook from GitHub. We use short-lived installation tokens and never store your personal GitHub credentials. Our infrastructure is isolated and follows security best practices.",
+  },
+  {
+    q: "Is it free for open source?",
+    a: "Absolutely. Orbiter is built for the open-source community. You can host it yourself or use our managed version for free on public repositories.",
+  },
+  {
+    q: "Can I customize the AI's behavior?",
+    a: "Yes. You can configure labels, response tones, and specific maintenance rules through the dashboard. You can also provide specific documentation files for the RAG system to prioritize.",
+  },
+  {
+    q: "Does it support private repos?",
+    a: "Yes, Orbiter can be installed on private repositories. The bot will respect all repository permissions and will only access the data it is explicitly granted.",
+  },
 ];
 
 export default function LandingPage() {
@@ -504,6 +562,180 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ══════ The Intelligence Layer ══════ */}
+      <section style={{ padding: "0 var(--spacing-page) 120px" }}>
+        <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: "40px",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  fontSize: "clamp(1.75rem, 4vw, 3rem)",
+                  fontWeight: 700,
+                  letterSpacing: "-0.03em",
+                  marginBottom: "24px",
+                }}
+              >
+                The intelligence layer for your repository.
+              </h2>
+              <p
+                style={{
+                  fontSize: "17px",
+                  lineHeight: 1.6,
+                  color: "var(--color-primary-muted)",
+                  marginBottom: "40px",
+                }}
+              >
+                Orbiter isn't just a bot. It's a context-aware system that understands your codebase as deeply as your best maintainer.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                {capabilities.map((cap, i) => {
+                  const Icon = cap.icon;
+                  return (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -20 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ delay: i * 0.1 }}
+                      style={{
+                        padding: "24px",
+                        borderRadius: "16px",
+                        background: "rgba(255,255,255,0.02)",
+                        border: "1px solid var(--color-border)",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: "16px", alignItems: "flex-start" }}>
+                        <div
+                          style={{
+                            width: "40px",
+                            height: "40px",
+                            borderRadius: "10px",
+                            background: "rgba(255,255,255,0.05)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Icon size={18} />
+                        </div>
+                        <div>
+                          <h4 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>{cap.title}</h4>
+                          <p style={{ fontSize: "14px", color: "var(--color-primary-muted)", lineHeight: 1.5 }}>
+                            {cap.desc}
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Visual Representation of GitHub Comment */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              className="glass"
+              style={{
+                padding: "24px",
+                position: "relative",
+                overflow: "hidden",
+                minHeight: "400px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "20px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", borderBottom: "1px solid var(--color-border)", paddingBottom: "16px" }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#fff", display: "flex", alignItems: "center", justifyItems: "center" }}>
+                  <Orbit size={18} color="#000" style={{ margin: "auto" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: 600 }}>orbiter-ai <span style={{ fontWeight: 400, color: "var(--color-primary-muted)" }}>commented</span></div>
+                  <div style={{ fontSize: "11px", color: "var(--color-primary-muted)" }}>2 minutes ago</div>
+                </div>
+                <div style={{ marginLeft: "auto", background: "rgba(255,255,255,0.05)", padding: "4px 8px", borderRadius: "4px", fontSize: "10px", color: "var(--color-primary-muted)" }}>BOT</div>
+              </div>
+
+              <div style={{ fontSize: "14px", lineHeight: 1.6, color: "var(--color-primary-muted)" }}>
+                <p style={{ marginBottom: "12px" }}>Hi @contributor! 👋 I&apos;ve analyzed this issue and found a few things:</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                    <div style={{ color: "var(--color-success)" }}>●</div>
+                    <div><strong>Duplicate Detected:</strong> This seems similar to <span style={{ color: "var(--color-info)" }}>#452</span>. The root cause might be the same.</div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                    <div style={{ color: "var(--color-warning)" }}>●</div>
+                    <div><strong>Suggested Labels:</strong> I&apos;ve added <code>bug</code> and <code>triage-needed</code>.</div>
+                  </div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "8px", borderLeft: "4px solid var(--color-primary)" }}>
+                  <p style={{ fontStyle: "italic", fontSize: "13px" }}>"The error occurs in <code>auth_client.py:L142</code> because the JWT secret is being read as bytes instead of a string."</p>
+                </div>
+              </div>
+
+              <div style={{ marginTop: "auto", display: "flex", gap: "8px" }}>
+                <div style={{ padding: "4px 10px", borderRadius: "100px", background: "rgba(52, 211, 153, 0.1)", color: "var(--color-success)", fontSize: "11px", fontWeight: 600 }}>Bug Fix Verified</div>
+                <div style={{ padding: "4px 10px", borderRadius: "100px", background: "rgba(96, 165, 250, 0.1)", color: "var(--color-info)", fontSize: "11px", fontWeight: 600 }}>Triage 98% Confident</div>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* ══════ Tech Stack Section ══════ */}
+      <section style={{ padding: "0 var(--spacing-page) 120px" }}>
+        <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: "64px" }}>
+            <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.5rem)", fontWeight: 700, marginBottom: "16px" }}>Built for scale. Built for speed.</h2>
+            <p style={{ color: "var(--color-primary-muted)", maxWidth: "600px", margin: "0 auto" }}>Powered by a modern stack designed for high-throughput webhook processing and deep semantic understanding.</p>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "20px" }}>
+            {techStack.map((tech, i) => {
+              const Icon = tech.icon;
+              return (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 10 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.05 }}
+                  style={{
+                    padding: "32px",
+                    borderRadius: "20px",
+                    background: "rgba(255,255,255,0.01)",
+                    border: "1px solid var(--color-border)",
+                    textAlign: "center",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "12px",
+                  }}
+                >
+                  <div style={{ width: 48, height: 48, borderRadius: "12px", background: "rgba(255,255,255,0.03)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Icon size={24} style={{ color: i % 2 === 0 ? "var(--color-primary)" : "var(--color-primary-muted)" }} />
+                  </div>
+                  <div>
+                    <h4 style={{ fontSize: "16px", fontWeight: 600 }}>{tech.name}</h4>
+                    <p style={{ fontSize: "13px", color: "var(--color-primary-muted)" }}>{tech.role}</p>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       {/* ══════ CTA Section ══════ */}
       <section style={{ padding: "0 var(--spacing-page) 120px" }}>
         <motion.div
@@ -545,6 +777,42 @@ export default function LandingPage() {
             <ArrowRight size={16} />
           </Link>
         </motion.div>
+      </section>
+
+      {/* ══════ FAQ Section ══════ */}
+      <section style={{ padding: "0 var(--spacing-page) 120px" }}>
+        <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: "64px" }}>
+            <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.5rem)", fontWeight: 700, marginBottom: "16px" }}>Common Questions</h2>
+            <p style={{ color: "var(--color-primary-muted)" }}>Everything you need to know about the AI maintainer.</p>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            {faqs.map((faq, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+                style={{
+                  padding: "32px",
+                  borderRadius: "20px",
+                  background: "rgba(255,255,255,0.01)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <h4 style={{ fontSize: "17px", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-primary)" }} />
+                  {faq.q}
+                </h4>
+                <p style={{ fontSize: "15px", color: "var(--color-primary-muted)", lineHeight: 1.6, paddingLeft: "16px" }}>
+                  {faq.a}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* ══════ Footer ══════ */}
