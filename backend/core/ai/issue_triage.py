@@ -14,8 +14,8 @@ def triage_issue(issue_event_payload: dict) -> dict:
 
     print(f"\n[AI_TRIAGE] Starting triage for {repo}#Issue_{issue_number}: '{title}'")
     
-    # 1. Duplicate Detection (via ChromaDB)
-    # TODO: Embed `body` and search ChromaDB `issues` collection
+    # 1. Duplicate Detection (via Supabase pgvector)
+    # TODO: Embed `body` and search repo_embeddings via match_repo_embeddings RPC
     is_duplicate = False
     duplicate_of = None
     # Simulating DB search
