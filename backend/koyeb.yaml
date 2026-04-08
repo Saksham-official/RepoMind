@@ -1,0 +1,24 @@
+project: repomind-backend
+services:
+  - name: repomind-api
+    docker:
+      dockerfile: Dockerfile
+    envs:
+      - SUPABASE_URL: "@supabase-url"
+      - SUPABASE_KEY: "@supabase-key"
+      - GROQ_API_KEY: "@groq-api-key"
+      - GITHUB_APP_ID: "@github-app-id"
+      - GITHUB_PRIVATE_KEY: "@github-private-key"
+      - WEBHOOK_SECRET: "@webhook-secret"
+    ports:
+      - port: 8000
+        protocol: http
+    regions:
+      - was
+    scale:
+      min: 1
+      max: 1
+    volumes:
+      - name: chromadb-storage
+        size: 5GB
+        path: /app/chroma_db
