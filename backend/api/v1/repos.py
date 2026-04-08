@@ -60,3 +60,30 @@ async def list_repo_actions(repo_id: str):
     except Exception as e:
         print(f"Error fetching actions for {repo_id}: {e}")
         return []
+@router.get("/actions/recent", response_model=List[dict])
+async def list_recent_actions():
+    """List most recent AI actions across all repositories"""
+    client = get_db_client()
+    if not client:
+        return []
+    
+    try:
+        response = client.table("ai_actions")\
+            .select("*, repositories(repo_name, owner)")\
+            .order("created_at", desc=True)\
+            .limit(20)\
+            .execute()
+            
+        return [{
+            "id": a["id"],
+            "repo_id": a["repo_id"],
+            "repo_name": a.get("repositories", {}).get("repo_name", "unknown") if a.get("repositories") else "unknown",
+            "event_type": a["event_type"],
+            "target_type": a["target_type"],
+            "target_number": a.get("target_number", 0),
+            "reasoning": a.get("reasoning", ""),
+            "created_at": a["created_at"]
+        } for a in response.data]
+    except Exception as e:
+        print(f"Error fetching global actions: {e}")
+        return []
