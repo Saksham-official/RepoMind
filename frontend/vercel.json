@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://repomind-api.koyeb.app",
+    "NEXT_PUBLIC_WS_URL": "wss://repomind-api.koyeb.app"
+  }
+}
