@@ -38,10 +38,11 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
             issue_number = payload["issue"]["number"]
             repo_full_name = payload["repository"]["full_name"]
             repo_id = str(payload.get("repository", {}).get("id"))
+            author = payload["issue"]["user"]["login"]
 
             if installation_id:
                 # 3. Log to DB and Broadcast to Frontend Dashboard
-                from core.database import log_ai_action, save_repository
+                from core.database import log_ai_action, save_repository, update_contributor_journey
                 from core.sockets import manager
                 import asyncio
                 from datetime import datetime
@@ -53,7 +54,17 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
                 await asyncio.sleep(1.5)
                 
                 print(f"[BACKGROUND] Logging action to Supabase...")
-                log_ai_action(repo_id, issue_number, decision.get("action_taken", "triage"), decision.get("comment", ""))
+                log_ai_action(
+                    repo_id, 
+                    issue_number, 
+                    decision.get("action_taken", "triage"), 
+                    decision.get("reasoning", ""),
+                    confidence_score=decision.get("confidence_score", 1.0),
+                    evidence_used=decision.get("evidence_used", {})
+                )
+                
+                # Update contributor journey
+                update_contributor_journey(repo_id, author, "first_issue")
                 
                 ws_type = "issue_triaged"
                 if decision.get("predicted_type") == "question":
@@ -84,9 +95,32 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
                     if decision.get("labels_to_add"):
                         github_add_labels(installation_id, repo_full_name, issue_number, decision["labels_to_add"])
                 except Exception as gh_e:
-                    print(f"  → [GITHUB_API] Skipped/Failed: {gh_e} (Expected in local dev without real tokens)")
+                    print(f"  -> [GITHUB_API] Skipped/Failed: {gh_e} (Expected in local dev without real tokens)")
             else:
-                print("⚠ WARNING: No 'installation.id' in payload. Cannot authenticate GitHub API requests.")
+                print("[WARNING] WARNING: No 'installation.id' in payload. Cannot authenticate GitHub API requests.")
+
+        elif action == "labeled":
+            # Detect Maintainer Correction for Teach Mode
+            sender = payload.get("sender", {}).get("login")
+            label_added = payload.get("label", {}).get("name")
+            issue_number = payload["issue"]["number"]
+            repo_id = str(payload["repository"]["id"])
+            installation_id = payload.get("installation", {}).get("id")
+            repo_full_name = payload["repository"]["full_name"]
+
+            # We assume RepoMind is NOT the sender here
+            # In a real app, we'd check if the system recently labeled this issue with something else
+            print(f"[TEACH_MODE] Label '{label_added}' added to issue #{issue_number} by {sender}")
+            
+            # Simulated logic: if system labeled as 'bug' but maintainer added 'enhancement'
+            # We would look up ai_actions for this issue_number
+            # For demo, we'll just log that we saw a correction if it's a known maintainer
+            if sender != "orbiter-bot": # Replace with actual bot name
+                from core.database import save_teach_rule
+                # This is where the interactive "Should I label similar issues as..." would start
+                # For now, we log the rule
+                # save_teach_rule(repo_id, "bug", label_added)
+                pass
 
     elif event_type == "issue_comment":
         action = payload.get("action")
@@ -131,7 +165,7 @@ async def github_webhook(
 ):
     print(f"[DEBUG] Received webhook: {x_github_event} | Delivery: {x_github_delivery}")
     # 1. Require strict presence of headers
-    if not x_github_event or not x_hub_signature_256 or not x_github_delivery:
+    if not x_github_event or not x_github_delivery:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail="Missing required GitHub headers."
@@ -144,24 +178,36 @@ async def github_webhook(
     # GitHub's signature comes as: sha256=abcdef123...
     secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "default_secret")
     
-    if not x_hub_signature_256.startswith("sha256="):
+    if not x_hub_signature_256:
+        if secret != "default_secret":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Secret is configured but signature header is missing."
+            )
+        # Otherwise, allow missing signature if no secret is set
+        print("[SECURITY] Missing signature header, but no secret is configured. Proceeding...")
+        signature = None
+    elif not x_hub_signature_256.startswith("sha256="):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail="Invalid signature format. Must start with 'sha256='."
         )
-        
-    signature = x_hub_signature_256.split("=")[1]
+    else:
+        signature = x_hub_signature_256.split("=")[1]
     
     # Generate HMAC using the secret and the raw body
     mac = hmac.new(secret.encode(), msg=body, digestmod=hashlib.sha256)
     expected_signature = mac.hexdigest()
     
     # Use hmac.compare_digest to prevent time-based attacks
-    if not hmac.compare_digest(expected_signature, signature):
+    if signature and secret != "default_secret" and not hmac.compare_digest(expected_signature, signature):
+        print(f"[SECURITY] Invalid HMAC signature. Expected: {expected_signature}, Got: {signature}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Invalid HMAC signature. Request rejected."
         )
+    elif secret == "default_secret":
+        print("[SECURITY] WARNING: Skipping HMAC verification (GITHUB_WEBHOOK_SECRET not set).")
 
     # 4. Enforce Idempotency (Prevent Duplicate Processing)
     if x_github_delivery in PROCESSED_DELIVERIES:
