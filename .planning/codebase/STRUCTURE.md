@@ -7,7 +7,7 @@
 - Documents: `prd.md`, `architecture.md`, `system_design.md`, `MVP_tech_doc.md`.
 
 ## Backend Structure
-- `backend/api/v1/`: Endpoint definitions for webhooks and dashboard APIs.
+- `backend/api/v1/`: Endpoint definitions for webhooks, copilot chat, and dashboard APIs.
 - `backend/core/`: 
     - `ai/`: LangChain agents, RAG logic, and pipeline implementations.
     - `ml/`: Model loading and inference wrappers.
