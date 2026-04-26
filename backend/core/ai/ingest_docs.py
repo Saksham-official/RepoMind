@@ -153,7 +153,7 @@ def auto_ingest_from_github(installation_id: int, repo_full_name: str, force_ref
     inserted = _push_chunks_to_supabase(
         chunks=all_chunks,
         repo_full_name=repo_full_name,
-        metadata_base={"source": "github_api"},
+        metadata_base={"source": "github_api", "type": "doc"},
     )
 
     return inserted > 0
@@ -195,7 +195,88 @@ def ingest_repo_docs(repo_path: str, repo_full_name: str):
     _push_chunks_to_supabase(
         chunks=raw_chunks,
         repo_full_name=repo_full_name,
-        metadata_base={"source": "local"},
+        metadata_base={"source": "local", "type": "doc"},
+    )
+
+
+def ingest_issues(repo_full_name: str, issues: list):
+    """
+    Ingests a list of issue objects into the vector database.
+    Each issue is indexed as a single chunk with metadata.
+    """
+    if not issues:
+        return 0
+
+    print(f"[INGEST] Indexing {len(issues)} issues for '{repo_full_name}'...")
+
+    chunks = []
+    for iss in issues:
+        # Create a rich text representation of the issue for semantic search
+        title = iss.get("title", "")
+        body = iss.get("body", "") or ""
+        number = iss.get("number", "unknown")
+        
+        # Format: #25: Issue Title \n Issue Body
+        issue_text = f"Issue #{number}: {title}\n\n{body}"
+        chunks.append(issue_text)
+
+    return _push_chunks_to_supabase(
+        chunks=chunks,
+        repo_full_name=repo_full_name,
+        metadata_base={"source": "database", "type": "issue"},
+    )
+
+
+def ingest_commits(repo_full_name: str, commits: list):
+    """
+    Ingests a list of commit objects into the vector database.
+    """
+    if not commits:
+        return 0
+
+    print(f"[INGEST] Indexing {len(commits)} commits for '{repo_full_name}'...")
+
+    chunks = []
+    for c in commits:
+        sha = c.get("sha", "unknown")[:8]
+        msg = c.get("message", "")
+        author = c.get("author", "unknown")
+        analysis = c.get("agent_analysis", "")
+        
+        # Format: Commit [sha] by author: message \n AI Analysis
+        commit_text = f"Commit {sha} by {author}: {msg}\n\nAI Analysis: {analysis}"
+        chunks.append(commit_text)
+
+    return _push_chunks_to_supabase(
+        chunks=chunks,
+        repo_full_name=repo_full_name,
+        metadata_base={"source": "database", "type": "commit"},
+    )
+
+
+def ingest_actions(repo_full_name: str, actions: list):
+    """
+    Ingests a list of AI action objects into the vector database.
+    """
+    if not actions:
+        return 0
+
+    print(f"[INGEST] Indexing {len(actions)} AI actions for '{repo_full_name}'...")
+
+    chunks = []
+    for a in actions:
+        event = a.get("event_type", "unknown")
+        target = f"{a.get('target_type', 'unknown')} #{a.get('target_number', '0')}"
+        reasoning = a.get("reasoning", "")
+        
+        # Format: Action [event] on target: reasoning
+        action_text = f"AI Action ({event}) on {target}: {reasoning}"
+        chunks.append(action_text)
+
+    return _push_chunks_to_supabase(
+        chunks=chunks,
+        repo_full_name=repo_full_name,
+        metadata_base={"source": "database", "type": "action"},
     )
 
 
