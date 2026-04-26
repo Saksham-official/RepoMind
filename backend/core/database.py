@@ -15,12 +15,12 @@ def get_db_client(): # -> Client
     Required for saving all AI actions, tracking installed repos, and storing webhooks.
     """
     if not SUPABASE_URL or not SUPABASE_KEY:
-        print("⚠ WARNING: SUPABASE_URL or SUPABASE_KEY not set in environment. Skipping DB operations.")
+        print("[WARNING] SUPABASE_URL or SUPABASE_KEY not set in environment. Skipping DB operations.")
         return None
         
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def log_ai_action(github_repo_id: str, target_number: int, event_type: str, reasoning: str):
+def log_ai_action(github_repo_id: str, target_number: int, event_type: str, reasoning: str, confidence_score: float = 1.0, evidence_used: dict = None):
     """Logs autonomous AI actions to the audit trail via Supabase."""
     client = get_db_client()
     if not client:
@@ -42,6 +42,9 @@ def log_ai_action(github_repo_id: str, target_number: int, event_type: str, reas
             "target_type": "issue",
             "target_number": target_number,
             "reasoning": reasoning,
+            "confidence_score": confidence_score,
+            "evidence_used": evidence_used or {},
+            "status": "active",
             "repo_id": internal_repo_uuid
         }
         
@@ -77,3 +80,60 @@ def save_repository(github_repo_id: str, repo_full_name: str, installation_id: i
         print(f"[DB] Repository upserted: {repo_full_name} (ID: {github_repo_id})")
     except Exception as e:
         print(f"[DB] Error saving repository: {e}")
+
+def save_teach_rule(repo_id: str, old_label: str, new_label: str):
+    """Saves a maintainer correction rule."""
+    client = get_db_client()
+    if not client: return
+    
+    data = {
+        "repo_id": repo_id,
+        "old_label": old_label,
+        "new_label": new_label,
+        "applied": False
+    }
+    try:
+        client.table("teach_rules").insert(data).execute()
+        print(f"[DB] Saved teach rule: {old_label} -> {new_label}")
+    except Exception as e:
+        print(f"[DB] Error saving teach rule: {e}")
+
+def update_contributor_journey(repo_id: str, username: str, milestone: str):
+    """Updates a contributor's journey milestones."""
+    client = get_db_client()
+    if not client: return
+    
+    try:
+        # Check if contributor exists
+        resp = client.table("contributor_journeys").select("*").eq("repo_id", repo_id).eq("github_username", username).execute()
+        
+        timestamp = "NOW()" # In real Supabase this would be handled by DB or python datetime
+        from datetime import datetime
+        now = datetime.now().isoformat()
+
+        if not resp.data:
+            # Create new entry
+            data = {
+                "repo_id": repo_id,
+                "github_username": username,
+                "milestones_achieved": [milestone]
+            }
+            if milestone == "first_issue": data["first_issue_at"] = now
+            elif milestone == "first_pr": data["first_pr_at"] = now
+            elif milestone == "first_merge": data["first_merge_at"] = now
+            
+            client.table("contributor_journeys").insert(data).execute()
+        else:
+            # Update existing
+            existing = resp.data[0]
+            milestones = existing.get("milestones_achieved", [])
+            if milestone not in milestones:
+                milestones.append(milestone)
+                update_data = {"milestones_achieved": milestones}
+                if milestone == "first_issue" and not existing.get("first_issue_at"): update_data["first_issue_at"] = now
+                elif milestone == "first_pr" and not existing.get("first_pr_at"): update_data["first_pr_at"] = now
+                elif milestone == "first_merge" and not existing.get("first_merge_at"): update_data["first_merge_at"] = now
+                
+                client.table("contributor_journeys").update(update_data).eq("id", existing["id"]).execute()
+    except Exception as e:
+        print(f"[DB] Error updating contributor journey: {e}")
