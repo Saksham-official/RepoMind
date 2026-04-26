@@ -60,9 +60,12 @@ def analyze_push_event(push_payload: dict):
         }
         
         print(f"  → [{result['sha']}] {result['ml_prediction'].upper()} ({result['confidence']*100}%): {result['message']}")
-        analyzed_commits.append(result)
-        
-        # 3. Real-Time Broadcasting
+        # 2. Graph Intelligence: Extract Links
+        from core.ai.graph_agent import link_entities
+        repo_id = str(push_payload.get("repository", {}).get("id"))
+        link_entities(repo_id, commit_sha, "commit", message)
+
+        # 3. Compile result
         # The AI intelligence immediately beams down to any open Next.js dashboard!
         import asyncio
         from core.sockets import manager
