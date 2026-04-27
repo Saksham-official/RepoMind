@@ -17,9 +17,9 @@ def load_classifier():
         artifacts = joblib.load(model_path)
         _model = artifacts["clf"]
         _tfidf = artifacts["tfidf"]
-        print("✓ ML commit classifier loaded successfully into memory.")
+        print("[OK] ML commit classifier loaded successfully into memory.")
     else:
-        print(f"⚠ Warning: No trained model found at {model_path}.")
+        print(f"[WARNING] Warning: No trained model found at {model_path}.")
 
 def classify_commit(message: str, additions: int, deletions: int, files_changed: int) -> dict:
     """Passes commit data through the ML model to receive a predicted label and confidence."""
