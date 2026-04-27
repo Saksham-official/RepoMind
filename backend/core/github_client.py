@@ -45,7 +45,7 @@ def get_installation_token(installation_id: int) -> str:
 
     # 2. If no valid cache exists, generate a new JWT and request an Installation Token
     if not GITHUB_PRIVATE_KEY:
-        print("⚠ WARNING: GITHUB_PRIVATE_KEY is not set. Using mock token for testing.")
+        print("[WARNING] WARNING: GITHUB_PRIVATE_KEY is not set. Using mock token for testing.")
         return "mock_installation_token"
 
     payload = {
@@ -167,3 +167,78 @@ def github_fetch_repo_docs(installation_id: int, repo_full_name: str) -> list[di
         print(f"[GITHUB_API] ERROR fetching repo docs: {e}")
 
     return results
+
+def github_get_pr_diff(installation_id: int, repo_full_name: str, pr_number: int) -> str:
+    """Fetches the raw diff of a Pull Request."""
+    print(f"[GITHUB_API] Fetching diff for {repo_full_name}#{pr_number}...")
+    try:
+        token = get_installation_token(installation_id)
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3.diff"
+        }
+        response = requests.get(f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}", headers=headers)
+        if response.status_code == 200:
+            return response.text
+        else:
+            print(f"[GITHUB_API] Failed to fetch diff: {response.status_code} {response.text}")
+            return ""
+    except Exception as e:
+        print(f"[GITHUB_API] ERROR fetching diff: {e}")
+        return ""
+
+def github_post_pr_review(installation_id: int, repo_full_name: str, pr_number: int, body: str, event: str = "COMMENT", comments: list = None):
+    """
+    Posts a review on a PR.
+    'event' can be 'APPROVE', 'REQUEST_CHANGES', or 'COMMENT'.
+    'comments' is a list of dicts: {'path': '...', 'line': 123, 'body': '...'}
+    """
+    print(f"[GITHUB_API] Posting PR review on {repo_full_name}#{pr_number}...")
+    try:
+        token = get_installation_token(installation_id)
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        data = {
+            "body": body,
+            "event": event
+        }
+        if comments:
+            data["comments"] = comments
+            
+        response = requests.post(
+            f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}/reviews",
+            headers=headers,
+            json=data
+        )
+        if response.status_code == 201:
+            print(f"[GITHUB_API] SUCCESS: PR review posted.")
+        else:
+            print(f"[GITHUB_API] Failed to post PR review: {response.status_code} {response.text}")
+    except Exception as e:
+        print(f"[GITHUB_API] ERROR posting PR review: {e}")
+
+def github_assign_issue(installation_id: int, repo_full_name: str, issue_number: int, assignees: list):
+    """Assigns users to an issue or PR."""
+    print(f"[GITHUB_API] Assigning {assignees} to {repo_full_name}#{issue_number}...")
+    try:
+        gh = get_github_client(installation_id)
+        repo = gh.get_repo(repo_full_name)
+        issue = repo.get_issue(number=issue_number)
+        issue.add_to_assignees(*assignees)
+        print(f"[GITHUB_API] SUCCESS: Assigned {assignees}")
+    except Exception as e:
+        print(f"[GITHUB_API] ERROR assigning: {e}")
+
+def github_update_release(installation_id: int, repo_full_name: str, release_id: int, body: str):
+    """Updates the body of a GitHub release."""
+    print(f"[GITHUB_API] Updating release {release_id} in {repo_full_name}...")
+    try:
+        gh = get_github_client(installation_id)
+        repo = gh.get_repo(repo_full_name)
+        release = repo.get_release(id=release_id)
+        release.edit(body=body)
+        print(f"[GITHUB_API] SUCCESS: Release body updated.")
+    except Exception as e:
+        print(f"[GITHUB_API] ERROR updating release: {e}")
