@@ -1,0 +1,10 @@
+# Pyrefly configuration for RepoMind
+# This tells Pyrefly to use the venv interpreter so all packages resolve correctly.
+
+python_interpreter = "venv/Scripts/python.exe"
+
+# Tell Pyrefly the source roots so `core.*` and `api.*` imports resolve properly
+source_paths = ["backend"]
+
+# Ignore the virtual in-memory analysis files (hover tooltips) — these are always noisy
+ignore_errors_in_generated_code = true
