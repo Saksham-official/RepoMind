@@ -4,13 +4,15 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 from core.ml.classifier import load_classifier
 from api.v1.webhooks import router as webhooks_router
 from api.v1.websockets import router as websockets_router
 from api.v1.repos import router as repos_router
 from api.v1.rag import router as rag_router
+from api.v1.copilot import router as copilot_router
+from api.v1.analytics import router as analytics_router
 from core.scheduler import start_scheduler, stop_scheduler
 
 @asynccontextmanager
@@ -33,12 +35,14 @@ app.include_router(webhooks_router)
 app.include_router(websockets_router, prefix="/api/v1")
 app.include_router(repos_router, prefix="/api/v1")
 app.include_router(rag_router, prefix="/api/v1")
+app.include_router(copilot_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
 
 # Allow CORS for your frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this to your Vercel URL
-    allow_credentials=True, 
+    allow_origins=["*"], 
+    allow_credentials=False, # Must be False if using wildcard origin
     allow_methods=["*"], 
     allow_headers=["*"]
 )
