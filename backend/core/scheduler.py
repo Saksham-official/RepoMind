@@ -37,10 +37,10 @@ def start_scheduler():
     # Cron format: Midnight every Sunday
     scheduler.add_job(stale_issue_sweep, "cron", day_of_week="sun", hour=0, minute=0)
     
-    print("✓ Background Job Scheduler booted successfully.")
+    print("[OK] Background Job Scheduler booted successfully.")
     scheduler.start()
 
 def stop_scheduler():
     """ Gracefully spins down background polling. """
     scheduler.shutdown()
-    print("✓ Background Job Scheduler gracefully shutdown.")
+    print("[OK] Background Job Scheduler gracefully shutdown.")
