@@ -336,6 +336,25 @@ body {
   }
 }
 
+/* ── Magic UI Animated Grid ──────────────────────────────────── */
+.magic-grid {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: 50px 50px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+  -webkit-mask-image: radial-gradient(circle at center, black 10%, transparent 80%);
+  animation: grid-drift 25s linear infinite;
+}
+
+@keyframes grid-drift {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(50px); }
+}
+
 /* ── Noise Texture Overlay ─────────────────────────────────── */
 .noise-overlay::before {
   content: "";
