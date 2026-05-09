@@ -24,6 +24,7 @@ export default function RootLayout({
         />
       </head>
       <body className="noise-overlay" style={{ fontFamily: "var(--font-sans)" }}>
+        <div className="magic-grid"></div>
         {children}
       </body>
     </html>
