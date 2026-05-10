@@ -19,73 +19,10 @@ import ActionCard from "@/components/ActionCard";
 import ActivityFeed from "@/components/ActivityFeed";
 import { getRepos, getGlobalActions } from "@/lib/api";
 import { orbiterWS } from "@/lib/websocket";
+import { supabase } from "@/lib/supabase";
 import type { Repository, AIAction } from "@/lib/api";
 
-// ── Demo data (shown when backend has no real data yet) ──────────────────────
-const DEMO_REPO: Repository = {
-  id: "demo-rag",
-  owner: "saksham-official",
-  repo_name: "RAG_Search_Engine",
-  installation_id: 0,
-  is_indexed: true,
-  health_score: 87,
-  last_indexed_at: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-  last_checked_at: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
-  created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
-};
 
-const makeAction = (
-  id: string,
-  event_type: string,
-  target_type: string,
-  target_number: number,
-  actions_taken: { action: string; value: string }[],
-  reasoning: string,
-  confidence: number,
-  minsAgo: number
-): AIAction => ({
-  id,
-  repo_id: "demo-rag",
-  event_type,
-  target_type,
-  target_number,
-  actions_taken,
-  reasoning,
-  ml_classification: {
-    type: event_type,
-    confidence,
-    scores: { [event_type]: confidence, other: +(1 - confidence).toFixed(2) },
-  },
-  created_at: new Date(Date.now() - 1000 * 60 * minsAgo).toISOString(),
-});
-
-const DEMO_ACTIONS: AIAction[] = [
-  makeAction(
-    "da-1", "issue_triaged", "issue", 12,
-    [{ action: "label", value: "bug" }, { action: "label", value: "triage-needed" }],
-    "Issue #12 is a confirmed duplicate of #7. Root cause: JWT bytes vs string mismatch.",
-    0.96, 8
-  ),
-  makeAction(
-    "da-2", "question_answered", "issue", 13,
-    [{ action: "comment", value: "Answered via RAG — cited retriever.py:L88" }],
-    "Contributor asked about ChromaDB ingestion. Found answer in repo docs.",
-    0.91, 22
-  ),
-  makeAction(
-    "da-3", "commit_analyzed", "commit", 0,
-    [{ action: "classify", value: "feature" }],
-    "Commit d4f9a2c adds new embedding endpoint. No breaking changes detected.",
-    0.94, 45
-  ),
-  makeAction(
-    "da-4", "issue_triaged", "issue", 14,
-    [{ action: "label", value: "enhancement" }, { action: "assign", value: "saksham-official" }],
-    "Enhancement request routed to repo owner based on contributor history.",
-    0.89, 90
-  ),
-];
-// ─────────────────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "Never";
@@ -104,36 +41,51 @@ export default function DashboardPage() {
 
   const fetchDashboardData = async () => {
     try {
-      const fetchedRepos = await getRepos();
-      // Merge demo repo if backend returns nothing
-      setRepos(fetchedRepos.length > 0 ? fetchedRepos : [DEMO_REPO]);
-
-      const fetchedActions = await getGlobalActions();
-      // Merge demo actions if backend returns nothing
-      setActions(fetchedActions.length > 0 ? fetchedActions : DEMO_ACTIONS);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = "/login";
+        return;
+      }
+      
+      const token = session.access_token;
+      const fetchedRepos = await getRepos(token);
+      const fetchedActions = await getGlobalActions(token);
+      setRepos(fetchedRepos);
+      setActions(fetchedActions);
     } catch (err) {
       console.error("Failed to fetch dashboard data:", err);
-      // Fallback to demo data on error
-      setRepos([DEMO_REPO]);
-      setActions(DEMO_ACTIONS);
+      setRepos([]);
+      setActions([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
+    // Initial fetch
     fetchDashboardData();
 
-    // Listen for WebSocket events to update stats or lists in real-time
-    const unsubscribe = orbiterWS.onEvent((event) => {
-      const refreshTypes = ["issue_triaged", "commit_analyzed", "question_answered", "repo_discovered"];
-      if (refreshTypes.includes(event.type)) {
-        // Re-fetch or manually prepend to update the lists
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        window.location.href = "/login";
+      } else {
         fetchDashboardData();
       }
     });
 
-    return () => unsubscribe();
+    // Listen for WebSocket events
+    const unsubscribeWS = orbiterWS.onEvent((event) => {
+      const refreshTypes = ["issue_triaged", "commit_analyzed", "question_answered", "repo_discovered"];
+      if (refreshTypes.includes(event.type)) {
+        fetchDashboardData();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      unsubscribeWS();
+    };
   }, []);
 
   const totalRepos = repos.length;
@@ -189,8 +141,7 @@ export default function DashboardPage() {
           {[
             { label: "Repositories", value: totalRepos, icon: GitFork, sub: `${indexedRepos} indexed` },
             { label: "Avg Health", value: avgHealth, icon: Activity, sub: "across all repos" },
-            { label: "AI Actions", value: totalActions, icon: Cpu, sub: "last 24h" },
-            { label: "Uptime", value: "99.2%", icon: Clock, sub: "Koyeb + UptimeRobot" },
+            { label: "AI Actions", value: totalActions, icon: Cpu, sub: "all time" },
           ].map((stat, i) => {
             const Icon = stat.icon;
             return (
