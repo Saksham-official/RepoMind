@@ -16,3 +16,7 @@ langchain-groq
 langchain-huggingface
 supabase
 apscheduler
+python-dotenv
+websockets
+python-jose[cryptography]
+chromadb
