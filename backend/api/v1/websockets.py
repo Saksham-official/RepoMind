@@ -13,7 +13,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
     """
     # 1. Verification Stub
     if not token or token == "undefined":
-        print("⚠ WARNING: WebSocket connected without a valid JWT token. Permitting for now in Dev Mode.")
+        print("[!] WARNING: WebSocket connected without a valid JWT token. Permitting for now in Dev Mode.")
         # In prod: await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         # return
 
