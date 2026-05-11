@@ -66,12 +66,15 @@ export default function CommitCard({ commit, index = 0 }: CommitCardProps) {
       </div>
 
       {/* Card Content */}
-      <div
+      <motion.div
         className="glass"
+        whileHover={{ scale: 1.01, boxShadow: "0px 8px 30px rgba(0,0,0,0.4)" }}
+        transition={{ duration: 0.2 }}
         style={{
           flex: 1,
           padding: "16px 20px",
           marginBottom: "12px",
+          cursor: "pointer",
         }}
       >
         <div
@@ -184,7 +187,7 @@ export default function CommitCard({ commit, index = 0 }: CommitCardProps) {
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }
