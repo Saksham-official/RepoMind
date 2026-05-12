@@ -32,7 +32,12 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
             # 1. Run AI logic
             decision = triage_issue(payload)
             print(f"[BACKGROUND] Triage engine returned: {decision}")
-            
+
+            # Early-exit: triage decided this issue doesn't need action (e.g. greeting/empty)
+            if decision.get("action_taken") == "skipped":
+                print(f"[BACKGROUND] Triage skipped issue #{payload['issue']['number']} — no action taken.")
+                return
+
             # 2. Extract context
             installation_id = payload.get("installation", {}).get("id")
             issue_number = payload["issue"]["number"]
@@ -124,23 +129,21 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
 
     elif event_type == "issue_comment":
         action = payload.get("action")
-        comment = payload.get("comment", {})
-        body = comment.get("body", "").lower()
-        author = comment.get("user", {}).get("login", "")
-        
-        print(f"Issue Comment event from {author}")
-        
-        # --- Advanced Unique Feature: Toxicity & Maintainer Burnout Detection ---
-        # A real implementation would pass `body` to an NLP sentiment analysis model.
-        # Here we simulate hitting a threshold using a fallback keyword check:
-        toxic_keywords = ["stupid", "idiot", "worst", "hate", "worthless"]
-        if any(keyword in body for keyword in toxic_keywords):
-            print(f"[ALERT] Toxicity threshold exceeded in comment by {author}.")
-            # TODO: Add to database `toxicity_alerts` and send private warning to maintainer dashboard
+        if action == "created":
+            comment = payload.get("comment", {})
+            body = comment.get("body", "")
+            author = comment.get("user", {}).get("login", "")
             
-        # Example burnout detection:
-        # if author in CORE_MAINTAINERS and time_of_comment is outside_working_hours:
-            # print(f"[ALERT] Core maintainer {author} is active during rest hours. Flagging burnout risk.")
+            print(f"[BACKGROUND] Issue Comment event from {author}")
+            
+            from core.ai.mention_responder import handle_comment
+            await handle_comment(payload)
+                
+            # Toxicity detection (existing)
+            toxic_keywords = ["stupid", "idiot", "worst", "hate", "worthless"]
+            if any(keyword in body.lower() for keyword in toxic_keywords):
+                print(f"[ALERT] Toxicity threshold exceeded in comment by {author}.")
+                # TODO: Log toxicity alert to DB
             
     elif event_type == "push":
         # Ensure we only analyze pushes that actually contain commits (not just tag creation, etc)
@@ -154,6 +157,34 @@ async def process_github_event(event_type: str, delivery_id: str, payload: dict)
             print(f"[BACKGROUND] Push analysis complete. {len(results)} commits categorized.")
         else:
             print("[BACKGROUND] Push event received but no commits attached to analyze.")
+
+    elif event_type == "pull_request":
+        action = payload.get("action")
+        print(f"Pull Request event action: {action}")
+        
+        # Trigger PR Review logic for new or updated PRs
+        if action in ["opened", "synchronize"]:
+            from core.ai.pr_reviewer import review_pr
+            import asyncio
+            
+            # We wrap in task to avoid blocking the main background processing loop
+            # although process_github_event is already in a background task
+            # We wrap in task to avoid blocking the main background processing loop
+            # although process_github_event is already in a background task
+            await review_pr(payload)
+            
+            # Graph Intelligence: Link PR to issues
+            from core.ai.graph_agent import link_entities
+            repo_id = str(payload.get("repository", {}).get("id"))
+            pr_num = str(payload.get("pull_request", {}).get("number"))
+            pr_body = payload.get("pull_request", {}).get("body", "")
+            link_entities(repo_id, pr_num, "pr", pr_body)
+
+    elif event_type == "release":
+        action = payload.get("action")
+        if action == "published":
+            from core.ai.release_agent import handle_release
+            await handle_release(payload)
 
 @router.post("/github")
 async def github_webhook(
