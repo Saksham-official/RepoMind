@@ -1,17 +1,60 @@
 "use client";
-
-import { use } from "react";
+import { use, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { ArrowLeft, GitCommit } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import CommitCard from "@/components/CommitCard";
-import { mockRepos, mockCommits } from "@/lib/mock-data";
+import { getRepos, getRepoCommits } from "@/lib/api";
+import type { Repository, Commit } from "@/lib/api";
 
 export default function CommitsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const repo = mockRepos.find((r) => r.id === id) || mockRepos[0];
-  const commits = mockCommits.filter((c) => c.repo_id === repo.id);
+  const [repo, setRepo] = useState<Repository | null>(null);
+  const [commits, setCommits] = useState<Commit[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [repos, repoCommits] = await Promise.all([
+          getRepos(),
+          getRepoCommits(id)
+        ]);
+        const currentRepo = repos.find(r => r.id === id);
+        if (currentRepo) setRepo(currentRepo);
+        setCommits(repoCommits);
+      } catch (err) {
+        console.error("Failed to fetch commits:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, [id]);
+
+  if (isLoading) {
+    return (
+      <>
+        <Navbar />
+        <main style={{ paddingTop: "88px", textAlign: "center", color: "var(--color-primary-muted)" }}>
+          <p>Loading commits...</p>
+        </main>
+      </>
+    );
+  }
+
+  if (!repo) {
+    return (
+      <>
+        <Navbar />
+        <main style={{ paddingTop: "88px", textAlign: "center", color: "var(--color-primary-muted)" }}>
+          <p>Repository not found.</p>
+          <Link href="/dashboard" style={{ color: "var(--color-primary)" }}>Back to Dashboard</Link>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>

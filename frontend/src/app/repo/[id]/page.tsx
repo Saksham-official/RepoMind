@@ -1,6 +1,5 @@
 "use client";
-
-import { use } from "react";
+import { use, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import {
@@ -17,14 +16,77 @@ import ActionCard from "@/components/ActionCard";
 import ReindexButton from "@/components/ReindexButton";
 import CommitCard from "@/components/CommitCard";
 import IssueTriageCard from "@/components/IssueTriageCard";
-import { mockRepos, mockActions, mockCommits, mockIssues } from "@/lib/mock-data";
+import AnalyticsTab from "@/components/AnalyticsTab";
+import CopilotChat from "@/components/CopilotChat";
+import { supabase } from "@/lib/supabase";
+import { getRepos, getRepoActions, getRepoCommits, getRepoIssues } from "@/lib/api";
+import type { Repository, AIAction, Commit, Issue } from "@/lib/api";
 
 export default function RepoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const repo = mockRepos.find((r) => r.id === id) || mockRepos[0];
-  const repoActions = mockActions.filter((a) => a.repo_id === repo.id);
-  const repoCommits = mockCommits.filter((c) => c.repo_id === repo.id);
-  const repoIssues = mockIssues.filter((is) => is.repo_id === repo.id);
+  
+  const [repo, setRepo] = useState<Repository | null>(null);
+  const [actions, setActions] = useState<AIAction[]>([]);
+  const [commits, setCommits] = useState<Commit[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"activity" | "analytics">("activity");
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          window.location.href = "/login";
+          return;
+        }
+
+        const token = session.access_token;
+        const [repos, repoActions, repoCommits, repoIssues] = await Promise.all([
+          getRepos(token),
+          getRepoActions(id, token),
+          getRepoCommits(id, token),
+          getRepoIssues(id, token)
+        ]);
+
+        const currentRepo = repos.find(r => r.id === id);
+        if (currentRepo) setRepo(currentRepo);
+        
+        setActions(repoActions);
+        setCommits(repoCommits);
+        setIssues(repoIssues);
+      } catch (err) {
+        console.error("Failed to fetch repo details:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [id]);
+
+  if (isLoading) {
+    return (
+      <>
+        <Navbar />
+        <main style={{ paddingTop: "88px", textAlign: "center", color: "var(--color-primary-muted)" }}>
+          <p>Loading repository details...</p>
+        </main>
+      </>
+    );
+  }
+
+  if (!repo) {
+    return (
+      <>
+        <Navbar />
+        <main style={{ paddingTop: "88px", textAlign: "center", color: "var(--color-primary-muted)" }}>
+          <p>Repository not found.</p>
+          <Link href="/dashboard" style={{ color: "var(--color-primary)" }}>Back to Dashboard</Link>
+        </main>
+      </>
+    );
+  }
 
   const repoFullName = `${repo.owner}/${repo.repo_name}`;
 
@@ -156,17 +218,39 @@ export default function RepoDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </motion.div>
 
-        <div className="separator" style={{ marginBottom: "32px" }} />
+        {/* Tab Switcher */}
+        <div style={{ display: "flex", gap: "24px", marginBottom: "32px", borderBottom: "1px solid var(--color-border)" }}>
+          {["activity", "analytics"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as any)}
+              style={{
+                padding: "12px 8px",
+                fontSize: "14px",
+                fontWeight: 600,
+                color: activeTab === tab ? "var(--color-primary)" : "var(--color-primary-muted)",
+                background: "none",
+                border: "none",
+                borderBottom: activeTab === tab ? "2px solid var(--color-primary)" : "2px solid transparent",
+                cursor: "pointer",
+                textTransform: "capitalize",
+                transition: "all 0.2s"
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
 
-        {/* Two-column layout */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "24px",
-          }}
-          className="repo-detail-grid"
-        >
+        {activeTab === "activity" ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "24px",
+            }}
+            className="repo-detail-grid"
+          >
           {/* Left: Commits */}
           <div>
             <div
@@ -192,10 +276,10 @@ export default function RepoDetailPage({ params }: { params: Promise<{ id: strin
                 View all →
               </Link>
             </div>
-            {repoCommits.slice(0, 4).map((c, i) => (
+            {commits.slice(0, 4).map((c, i) => (
               <CommitCard key={c.id} commit={c} index={i} />
             ))}
-            {repoCommits.length === 0 && (
+            {commits.length === 0 && (
               <p style={{ fontSize: "14px", color: "var(--color-primary-muted)", padding: "24px 0" }}>
                 No commits analyzed yet.
               </p>
@@ -230,10 +314,10 @@ export default function RepoDetailPage({ params }: { params: Promise<{ id: strin
                 </Link>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {repoIssues.slice(0, 3).map((iss, i) => (
+                {issues.slice(0, 3).map((iss, i) => (
                   <IssueTriageCard key={iss.id} issue={iss} index={i} />
                 ))}
-                {repoIssues.length === 0 && (
+                {issues.length === 0 && (
                   <p style={{ fontSize: "14px", color: "var(--color-primary-muted)", padding: "24px 0" }}>
                     No issues triaged yet.
                   </p>
@@ -257,10 +341,10 @@ export default function RepoDetailPage({ params }: { params: Promise<{ id: strin
                 AI Actions
               </h2>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {repoActions.slice(0, 3).map((a) => (
+                {actions.slice(0, 3).map((a) => (
                   <ActionCard key={a.id} action={a} />
                 ))}
-                {repoActions.length === 0 && (
+                {actions.length === 0 && (
                   <p style={{ fontSize: "14px", color: "var(--color-primary-muted)", padding: "24px 0" }}>
                     No AI actions taken yet.
                   </p>
@@ -268,7 +352,11 @@ export default function RepoDetailPage({ params }: { params: Promise<{ id: strin
               </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <AnalyticsTab repoId={id} />
+        )}
+
+        <CopilotChat repoId={id} />
 
         <style jsx global>{`
           @media (max-width: 800px) {

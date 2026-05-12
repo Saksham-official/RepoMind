@@ -40,8 +40,10 @@ export default function ActionCard({ action, repoName }: ActionCardProps) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      whileHover={{ scale: 1.01, boxShadow: "0px 8px 30px rgba(0,0,0,0.4)" }}
+      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="glass"
       style={{ padding: "20px 24px", cursor: "pointer" }}
       onClick={() => setExpanded(!expanded)}
@@ -94,11 +96,13 @@ export default function ActionCard({ action, repoName }: ActionCardProps) {
                   #{action.target_number}
                 </span>
               )}
-              <TypeBadge
-                type={action.ml_classification.type}
-                confidence={action.ml_classification.confidence}
-                size="sm"
-              />
+              {action.ml_classification && (
+                <TypeBadge
+                  type={action.ml_classification.type}
+                  confidence={action.ml_classification.confidence}
+                  size="sm"
+                />
+              )}
             </div>
             <div
               style={{
@@ -146,31 +150,44 @@ export default function ActionCard({ action, repoName }: ActionCardProps) {
             style={{ overflow: "hidden" }}
           >
             <div style={{ paddingTop: "16px", marginTop: "16px", borderTop: "1px solid var(--color-border)" }}>
-              {/* Reasoning */}
-              <div style={{ marginBottom: "16px" }}>
-                <span
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    color: "var(--color-primary-muted)",
-                    marginBottom: "6px",
-                    display: "block",
-                  }}
-                >
-                  AI Reasoning
-                </span>
-                <p
-                  style={{
-                    fontSize: "13px",
-                    lineHeight: 1.6,
-                    color: "rgba(255,255,255,0.7)",
-                  }}
-                >
-                  {action.reasoning}
-                </p>
-              </div>
+                <div className="flex items-center justify-between mb-4">
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      color: "var(--color-primary-muted)",
+                    }}
+                  >
+                    AI Reasoning & Confidence
+                  </span>
+                  {action.ml_classification && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-24 h-1 bg-white/5 rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${action.ml_classification.confidence * 100}%` }}
+                          className="h-full bg-indigo-500"
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-indigo-300">
+                        {Math.round(action.ml_classification.confidence * 100)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 mb-6">
+                  <p
+                    style={{
+                      fontSize: "13px",
+                      lineHeight: 1.6,
+                      color: "rgba(255,255,255,0.8)",
+                    }}
+                  >
+                    {action.reasoning}
+                  </p>
+                </div>
 
               {/* Actions Taken */}
               <div>
@@ -188,42 +205,46 @@ export default function ActionCard({ action, repoName }: ActionCardProps) {
                   Actions Taken
                 </span>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {action.actions_taken.map((a, i) => {
-                    const Icon = actionIcons[a.action] || Tag;
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: "8px",
-                          padding: "8px 12px",
-                          background: "rgba(255,255,255,0.02)",
-                          borderRadius: "8px",
-                          fontSize: "13px",
-                        }}
-                      >
-                        <Icon
-                          size={14}
-                          style={{ color: "var(--color-primary-muted)", marginTop: "2px", flexShrink: 0 }}
-                        />
-                        <div style={{ minWidth: 0 }}>
-                          <span
-                            style={{
-                              fontFamily: "var(--font-mono)",
-                              fontSize: "11px",
-                              color: "var(--color-primary-muted)",
-                            }}
-                          >
-                            {a.action}
-                          </span>
-                          <p style={{ color: "rgba(255,255,255,0.6)", marginTop: "2px", lineHeight: 1.5 }}>
-                            {a.value}
-                          </p>
+                  {action.actions_taken && action.actions_taken.length > 0 ? (
+                    action.actions_taken.map((a, i) => {
+                      const Icon = actionIcons[a.action] || Tag;
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: "8px",
+                            padding: "8px 12px",
+                            background: "rgba(255,255,255,0.02)",
+                            borderRadius: "8px",
+                            fontSize: "13px",
+                          }}
+                        >
+                          <Icon
+                            size={14}
+                            style={{ color: "var(--color-primary-muted)", marginTop: "2px", flexShrink: 0 }}
+                          />
+                          <div style={{ minWidth: 0 }}>
+                            <span
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: "11px",
+                                color: "var(--color-primary-muted)",
+                              }}
+                            >
+                              {a.action}
+                            </span>
+                            <p style={{ color: "rgba(255,255,255,0.6)", marginTop: "2px", lineHeight: 1.5 }}>
+                              {a.value}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  ) : (
+                    <p style={{ fontSize: "13px", color: "var(--color-primary-muted)" }}>No specific actions recorded.</p>
+                  )}
                 </div>
               </div>
             </div>
