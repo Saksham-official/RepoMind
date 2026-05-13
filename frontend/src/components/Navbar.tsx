@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import SystemHealth from "./SystemHealth";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -77,6 +78,11 @@ export default function Navbar() {
               Orbiter
             </span>
           </Link>
+
+          {/* System Health */}
+          <div className="hidden lg:block">
+            <SystemHealth />
+          </div>
 
           {/* Desktop Nav */}
           <div
