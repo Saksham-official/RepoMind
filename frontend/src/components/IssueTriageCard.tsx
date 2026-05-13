@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { AlertCircle, Clock, User, Copy } from "lucide-react";
 import TypeBadge from "./TypeBadge";
+import RelationshipLinks from "./RelationshipLinks";
 import type { Issue } from "@/lib/api";
 
 function formatTimeAgo(dateStr: string) {
@@ -23,11 +24,12 @@ interface IssueTriageCardProps {
 export default function IssueTriageCard({ issue, index = 0 }: IssueTriageCardProps) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: index * 0.06 }}
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      whileHover={{ scale: 1.01, boxShadow: "0px 8px 30px rgba(0,0,0,0.4)" }}
+      transition={{ duration: 0.4, delay: index * 0.06, ease: [0.16, 1, 0.3, 1] }}
       className="glass"
-      style={{ padding: "20px 24px" }}
+      style={{ padding: "20px 24px", cursor: "pointer" }}
     >
       {/* Header Row */}
       <div
@@ -164,6 +166,12 @@ export default function IssueTriageCard({ issue, index = 0 }: IssueTriageCardPro
           </span>
         )}
       </div>
+
+      <RelationshipLinks 
+        repoId={issue.repo_id} 
+        entityId={issue.number.toString()} 
+        entityType="issue" 
+      />
     </motion.div>
   );
 }
