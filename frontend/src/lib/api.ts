@@ -93,6 +93,20 @@ export interface HealthCheck {
   message: string;
 }
 
+export interface ContributorStats {
+  username: string;
+  total_commits: number;
+  feat: number;
+  fix: number;
+  impact_score: number;
+  last_active: string;
+}
+
+export interface VelocityPoint {
+  date: string;
+  count: number;
+}
+
 // ────── Endpoints ──────────────────────────────────────────
 
 export async function getHealth(): Promise<HealthCheck> {
@@ -135,4 +149,13 @@ export async function testML(message: string) {
     method: "POST",
     body: JSON.stringify({ message }),
   });
+}
+
+export async function getContributorVelocity(repoId?: string): Promise<ContributorStats[]> {
+  const path = repoId ? `/api/v1/analytics/contributor_velocity?repo_id=${repoId}` : "/api/v1/analytics/contributor_velocity";
+  return apiFetch<ContributorStats[]>(path);
+}
+
+export async function getRepoVelocity(): Promise<VelocityPoint[]> {
+  return apiFetch<VelocityPoint[]>("/api/v1/analytics/repo_velocity");
 }
