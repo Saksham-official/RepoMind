@@ -9,18 +9,23 @@ export type WSEventType =
   | "issue_triaged"
   | "question_answered"
   | "commit_analyzed"
+  | "pr_reviewed"
   | "error"
-  | "connected";
+  | "connected"
+  | "heartbeat";
 
 export interface WSEvent {
   type: WSEventType;
+  repo?: string;
   issue_number?: number;
+  pr_number?: number;
   classification?: string;
   confidence?: number;
   sha?: string;
   commit_type?: string;
   message?: string;
   actions?: string[];
+  summary?: string;
   timestamp?: string;
 }
 
@@ -32,6 +37,7 @@ class OrbiterWebSocket {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private token: string | null = null;
 
   connect(token?: string) {
@@ -47,6 +53,7 @@ class OrbiterWebSocket {
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
+        this.startHeartbeat();
         this.emit({ type: "connected", message: "Connected to Orbiter" });
       };
 
@@ -61,6 +68,7 @@ class OrbiterWebSocket {
       };
 
       this.ws.onclose = () => {
+        this.stopHeartbeat();
         this.attemptReconnect();
       };
 
@@ -83,6 +91,22 @@ class OrbiterWebSocket {
     }, delay);
   }
 
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 30000); // 30 seconds
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
   onEvent(handler: EventHandler) {
     this.handlers.push(handler);
     return () => {
@@ -96,6 +120,7 @@ class OrbiterWebSocket {
 
   disconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.stopHeartbeat();
     this.ws?.close();
     this.ws = null;
   }
