@@ -1,0 +1,27 @@
+# RepoMind (Orbiter) Progress Report
+
+## Recent Updates (2026-04-24)
+Implemented core logic for Phase 3 Advanced Intelligence features:
+
+1. **Explainable Decisions**: 
+   - Updated `IssueTriage` pipeline to return `confidence`, `reasoning`, and `evidence`.
+   - Updated `log_ai_action` in `database.py` to store these fields in Supabase.
+   - Enhanced mock classifier to provide structured metadata.
+
+2. **Contributor Journey Tracking**:
+   - Added `update_contributor_journey` function to track user milestones (First issue, PR, merge).
+   - Integrated tracking into the `issues.opened` webhook flow.
+
+3. **Teach Mode (Learning from Maintainers)**:
+   - Added `labeled` event handling in `webhooks.py` to detect maintainer corrections.
+   - Added `save_teach_rule` function to store learned rules.
+
+4. **Maintainer Copilot Chat**:
+   - Created `/api/v1/copilot/chat` endpoint in `copilot.py`.
+   - Implemented mock RAG logic for PR velocity and mentorship insights.
+   - Mounted the new router in `main.py`.
+
+## Next Steps
+- Implement `FEAT-TEACH-02`: Automate rule storage and interactive feedback.
+- Implement `FEAT-CHAT-02`: Real RAG search across repository activity logs.
+- Build Frontend components for Chat and Explainability (Dashboard).
