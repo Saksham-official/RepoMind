@@ -19,3 +19,7 @@ It listens to GitHub events (like Issues opened, PRs submitted, or Commits pushe
 1. **GitHub App Pattern:** Uses modern and secure GitHub App tokens for webhooks, replacing legacy PATs.
 2. **AI Action Layer:** Can actively read repository state via RAG (Retrieval-Augmented Generation) and autonomously `POST` or `PATCH` on GitHub.
 3. **Live Dashboard Stream:** WebSockets push live AI actions from the FastAPI backend to the Next.js frontend instantly.
+4. **Teach Mode (Advanced Intelligence):** Learns from maintainer corrections in real-time to improve future triage accuracy.
+5. **Contributor Journey Tracking:** Analyzes contributor progression to suggest mentorship and community building opportunities.
+6. **Explainable Decisions:** Provides confidence scores, reasoning, and evidence for every automated action taken.
+7. **Maintainer Copilot Chat:** A conversational interface for maintainers to query repository health and contributor insights.
